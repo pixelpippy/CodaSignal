@@ -35,6 +35,12 @@ function computeCurrentTokens() {
   return sumUsage(tp);
 }
 
+function currentDurationMs() {
+  if (!appState.startTs) return 0;
+  const end = appState.endTs || Date.now();
+  return Math.max(0, end - appState.startTs);
+}
+
 function openStatsWindow() {
   if (statsWin) { statsWin.focus(); return; }
   statsWin = new BrowserWindow({
@@ -61,7 +67,15 @@ ipcMain.handle('get-stats', () => {
   const prices = loadPrices();
   const tokens = computeCurrentTokens();
   const current = tokens
-    ? { cwd: appState.cwd, project: projectNameFromCwd(appState.cwd), tokens, cost: estimateCost(tokens, prices) }
+    ? {
+        cwd: appState.cwd,
+        project: projectNameFromCwd(appState.cwd),
+        startTs: appState.startTs,
+        endTs: appState.endTs,
+        durationMs: currentDurationMs(),
+        tokens,
+        cost: estimateCost(tokens, prices),
+      }
     : null;
   const stored = loadStats();
   // 若本次会话已结束，确保落盘一条记录
