@@ -73,6 +73,45 @@ function loadPrices(settingsDir = SIGNAL_DIR) {
   }
 }
 
+function buildRecord({ sessionId, cwd, project, startTs, endTs, tokens }, prices) {
+  const p = prices || loadPrices();
+  const durationMs = (typeof endTs === 'number' && typeof startTs === 'number') ? Math.max(0, endTs - startTs) : 0;
+  return {
+    sessionId,
+    cwd,
+    project: project || '',
+    startTs,
+    endTs,
+    durationMs,
+    tokens: { ...tokens },
+    cost: estimateCost(tokens, p),
+  };
+}
+
+function emptyStats() {
+  return { sessions: [], totals: { count: 0, durationMs: 0, tokens: 0, cost: 0 } };
+}
+
+function loadStats(dir = SIGNAL_DIR) {
+  try {
+    return JSON.parse(fs.readFileSync(path.join(dir, 'stats.json'), 'utf8'));
+  } catch {
+    return emptyStats();
+  }
+}
+
+function recordSession(rec, dir = SIGNAL_DIR) {
+  const data = loadStats(dir);
+  data.sessions.push(rec);
+  data.totals.count += 1;
+  data.totals.durationMs += rec.durationMs || 0;
+  data.totals.tokens += rec.tokens.total || 0;
+  data.totals.cost += rec.cost || 0;
+  fs.mkdirSync(dir, { recursive: true });
+  fs.writeFileSync(path.join(dir, 'stats.json'), JSON.stringify(data, null, 2));
+  return data;
+}
+
 module.exports = {
   DEFAULT_PRICES,
   cwdToSlug,
@@ -80,4 +119,8 @@ module.exports = {
   sumUsage,
   estimateCost,
   loadPrices,
+  loadStats,
+  recordSession,
+  buildRecord,
+  emptyStats,
 };
