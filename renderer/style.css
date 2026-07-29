@@ -1,0 +1,25 @@
+* { margin: 0; padding: 0; box-sizing: border-box; }
+html, body {
+  background: transparent;
+  font-family: -apple-system, "Segoe UI", "Microsoft YaHei", sans-serif;
+  color: #e6e6e6;
+  user-select: none;
+}
+.titlebar {
+  -webkit-app-region: drag;
+  height: 22px; line-height: 22px; text-align: center;
+  font-size: 12px; opacity: 0.7;
+}
+.lights {
+  display: flex; flex-direction: column; align-items: center; gap: 12px;
+  padding: 10px 0;
+}
+.light {
+  width: 54px; height: 54px; border-radius: 50%;
+  background: #2a2a2a; transition: all 0.25s ease;
+}
+.light.red.active    { background: #ff4d4f; box-shadow: 0 0 24px 6px rgba(255,77,79,0.8); }
+.light.yellow.active { background: #ffd93b; box-shadow: 0 0 24px 6px rgba(255,217,59,0.8); }
+.light.green.active  { background: #36d399; box-shadow: 0 0 24px 6px rgba(54,211,153,0.8); }
+.label { text-align: center; font-size: 15px; font-weight: 600; }
+.project { text-align: center; font-size: 11px; opacity: 0.6; margin-top: 4px; }
