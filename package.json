@@ -1,0 +1,16 @@
+{
+  "name": "codasignal",
+  "version": "0.1.0",
+  "description": "CodeBuddy desktop traffic-light + stats panel for Windows",
+  "main": "main.js",
+  "license": "MIT",
+  "scripts": {
+    "start": "electron .",
+    "dist": "electron-builder",
+    "test": "node --test tests/"
+  },
+  "devDependencies": {
+    "electron": "^31.0.0",
+    "electron-builder": "^24.13.3"
+  }
+}
