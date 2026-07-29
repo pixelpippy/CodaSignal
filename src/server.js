@@ -23,8 +23,9 @@ function startServer(port, onEvent) {
     }
   });
   return new Promise((resolve) => {
-    server.on('error', () => {
+    server.on('error', (err) => {
       // 端口被占用（EADDRINUSE）或其他监听错误：返回 null，由调用方退出避免多实例
+      console.error('[CodaSignal] HTTP server error:', (err && err.message) || err);
       resolve(null);
     });
     server.listen(p, '127.0.0.1', () => resolve(server));

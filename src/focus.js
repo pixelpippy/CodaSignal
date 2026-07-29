@@ -6,10 +6,9 @@ function parsePanes(json) {
 }
 
 function findWindowIdForCwd(panes, cwd) {
-  const target = String(cwd || '').toLowerCase();
-  const pane = (Array.isArray(panes) ? panes : []).find(
-    (p) => String(p.cwd || '').toLowerCase() === target
-  );
+  const norm = (s) => String(s || '').replace(/[\\/]+$/, '').toLowerCase();
+  const target = norm(cwd);
+  const pane = (Array.isArray(panes) ? panes : []).find((p) => norm(p.cwd) === target);
   return pane ? pane.window_id : null;
 }
 

@@ -19,7 +19,7 @@ async function refresh() {
     `会话数: ${t.count || 0}\n总时长: ${fmtMs(t.durationMs)}\n总 token: ${fmtTokens(t.tokens)}\n总费用: ${(t.cost || 0).toFixed(4)} ${data.prices.currency}`;
 
   const list = (data.sessions || []).slice(-20).reverse()
-    .map((s) => `• ${s.project} | ${fmtMs(s.durationMs)} | ${fmtTokens(s.tokens.total)} tok | ${s.cost.toFixed(4)}`)
+    .map((s) => `• ${s.project} | ${fmtMs(s.durationMs)} | ${fmtTokens((s.tokens && s.tokens.total) || 0)} tok | ${(s.cost || 0).toFixed(4)}`)
     .join('\n') || '（暂无历史）';
   document.querySelector('#history .body').textContent = list;
 }

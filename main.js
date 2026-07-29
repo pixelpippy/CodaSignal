@@ -84,14 +84,6 @@ ipcMain.handle('get-stats', () => {
       }
     : null;
   const stored = loadStats();
-  // 若本次会话已结束，确保落盘一条记录
-  if (appState.endTs && appState.startTs && !appState._recorded) {
-    recordSession(buildRecord({
-      sessionId: appState.sessionId, cwd: appState.cwd, project: projectNameFromCwd(appState.cwd),
-      startTs: appState.startTs, endTs: appState.endTs, tokens: tokens || { input:0,output:0,cacheCreation:0,cacheRead:0,total:0 },
-    }, prices));
-    appState._recorded = true;
-  }
   return { current, totals: stored.totals, sessions: stored.sessions, prices };
 });
 
@@ -100,7 +92,22 @@ app.whenReady().then(async () => {
   buildTray();
   const server = await startServer(defaultPort(), (event, data) => {
     appState.applyEvent(event, data || {});
-    if (event === 'SessionEnd') appState._recorded = false; // 允许下次 get-stats 落盘
+    // 会话结束时自动落盘一条记录（spec §10），按 (cwd,startTs) 去重，避免重复计数
+    if (event === 'SessionEnd' && appState.startTs) {
+      const stored = loadStats();
+      const dup = stored.sessions.find(
+        (s) => s.cwd === appState.cwd && s.startTs === appState.startTs
+      );
+      if (!dup) {
+        const prices = loadPrices();
+        const tk = computeCurrentTokens() || { input: 0, output: 0, cacheCreation: 0, cacheRead: 0, total: 0 };
+        recordSession(buildRecord({
+          sessionId: appState.sessionId, cwd: appState.cwd,
+          project: projectNameFromCwd(appState.cwd),
+          startTs: appState.startTs, endTs: appState.endTs, tokens: tk,
+        }, prices));
+      }
+    }
     sendState();
   });
   if (!server) {
