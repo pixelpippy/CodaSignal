@@ -20,8 +20,8 @@ CodaSignal 是一个运行在 Windows 桌面上的小型常驻应用，作为 Co
 
 - 不支持多会话多盏灯（本期仅单会话、一盏灯）。
 - 不做网络同步 / 远程监控。
-- 不做历史日志面板、统计图表等额外功能。
 - 不内置审批操作（只在灯上提示，审批仍在 CodeBuddy 原界面完成）。
+- 本期统计面板为单机本地数据，不做云端同步 / 多机汇总。
 
 ## 2. 架构
 
@@ -193,7 +193,71 @@ interface AppState {
 - **悬浮窗**：桌角一个永远置顶（`alwaysOnTop`）的小窗口，半透明、可拖拽；渲染三盏圆灯（红/黄/绿），当前状态那盏点亮并发光（CSS `box-shadow` 辉光动画），其余暗淡。下方一行状态文字 + 项目目录名。点击窗口任意处触发聚焦终端。
 - **系统托盘图标**：常驻托盘，图标颜色随状态变化；点击托盘图标同样触发聚焦终端；关闭悬浮窗后托盘仍在，可从托盘恢复窗口。
 
-## 10. 容错与边界
+## 10. 统计面板
+
+在托盘右键菜单「统计面板」打开的第二个 `BrowserWindow` 中，展示当前会话与跨会话的 token 用量、会话时长与估算费用。
+
+### 数据来源
+
+- **会话时长**：`SessionStart` 事件记 `startTs`，`SessionEnd` 事件记 `endTs`；会话活跃时实时显示已用时间。
+- **Token 用量**：读取 CodeBuddy 会话记录文件。hook 输入虽提供 `transcript_path`，但为保持 hooks 零依赖（不解析 JSON），应用改为自行定位该文件——将存储的 `cwd` 转成项目 slug（小写、去除 `:`、把 `/` 替换为 `-`；例如 `D:/a/b/C` → `d-a-b-c`），在 `~/.codebuddy/projects/<slug>/` 下取最新修改的 `.jsonl`，逐行 `JSON.parse` 并累加每条 `usage` 的 `input_tokens` / `output_tokens` / `cache_creation_input_tokens` / `cache_read_input_tokens`。
+- **更新时机**：打开统计面板时实时读取一次；收到 `Stop` 事件时重新读取并刷新。
+
+### 指标
+
+- 会话时长（当前 / 每次历史 / 累计）
+- Token 明细：`input`、`output`、`cache_creation`、`cache_read` 及合计
+- 估算费用（见下）
+
+### 费用估算
+
+本地配置文件 `~/.codasignal/settings.json`（与统计持久化同目录）内含 `prices`：
+
+```json
+{
+  "prices": {
+    "input_per_1m": 3.0,
+    "output_per_1m": 15.0,
+    "cache_creation_per_1m": 3.75,
+    "cache_read_per_1m": 0.3,
+    "currency": "USD"
+  }
+}
+```
+
+默认给一组参考单价（以常见模型为基准），用户可直接改文件调整。本期为**全局单价**，不做按模型区分（后续可扩展为按模型定价）。
+
+### 持久化（跨会话历史）
+
+文件 `~/.codasignal/stats.json` 记录每次会话：
+
+```json
+{
+  "sessions": [
+    {
+      "sessionId": "cb821c8d-...",
+      "cwd": "D:/agent-workspace/codebuddy/CodaSignal",
+      "project": "CodaSignal",
+      "startTs": 1780000000000,
+      "endTs": 1780000300000,
+      "durationMs": 300000,
+      "tokens": { "input": 12000, "output": 3000, "cacheCreation": 0, "cacheRead": 8000, "total": 23000 },
+      "cost": 0.085
+    }
+  ],
+  "totals": { "count": 1, "durationMs": 300000, "tokens": 23000, "cost": 0.085 }
+}
+```
+
+- 每会话一条记录，`SessionEnd` 时落盘；应用同时维护 `totals` 累计汇总。
+- 统计面板展示：当前会话实时卡 + 累计汇总 + 历史会话列表（可滚动）。
+
+### UI
+
+- 第二个 `BrowserWindow`（统计面板），由托盘右键菜单「统计面板」打开（悬浮窗也可加一个「统计」按钮）。
+- 内容：当前会话（时长 + token 明细 + 费用）+ 累计汇总 + 历史会话列表。
+
+## 11. 容错与边界
 
 - **守护进程未启动**：hook 的 `|| true` 吞掉 curl 错误，CodeBuddy 完全不受影响。
 - **端口被占用（应用重复启动）**：Electron 绑定失败时报错并退出，避免多实例互相覆盖状态。
@@ -201,24 +265,26 @@ interface AppState {
 - **窗口已关**：聚焦时找不到窗口则静默忽略。
 - **HTTP 异常**：任意请求出错都返回 200，守护进程不崩。
 
-## 11. 打包与开源
+## 12. 打包与开源
 
 - `npm run dist` 经 `electron-builder` 产出带安装向导的 `.exe` 安装包，他人双击即用。
 - 仓库初始化 git，根目录含 `MIT LICENSE`、`README.md`（含 hook 配置步骤与打包命令）。
 - 源码全部以 MIT 许可证开源。
 
-## 12. 测试
+## 13. 测试
 
 - **单元 / 接口**：用 `curl` 直接打 `POST /event` 模拟各事件，验证灯色、托盘、文字随映射正确变化。
 - **端到端**：启动 CodaSignal → 跑一次真实 CodeBuddy 任务，观察灯在 红/黄/绿/idle 间正确切换；点击悬浮窗与托盘，确认对应 WezTerm 窗口被聚焦。
 - **负向**：在未启动 CodaSignal 时跑 CodeBuddy，确认无报错、无卡顿。
+- **统计**：跑一次含多轮工具调用的 CodeBuddy 任务后打开统计面板，核对 token 明细与 transcript 实际 `usage` 累加一致；修改 `prices` 后费用随之变化；关闭重开应用后历史与会话汇总仍在。
 
-## 13. 实现步骤（建议顺序）
+## 14. 实现步骤（建议顺序）
 
 1. 初始化仓库、`package.json`、MIT LICENSE、目录骨架。
 2. Electron 主进程：建悬浮窗 + 托盘 + 本地 HTTP 服务，实现 `/event` 与状态映射。
 3. 渲染进程：三盏灯 UI + 发光动画 + 状态文字。
 4. 点击聚焦：接入 `wezterm cli` 逻辑。
-5. 编写 `hooks/setup-hooks.md` 与 `README.md`，给出 `~/.codebuddy/settings.json` 的 hook 片段。
-6. 配置 `electron-builder`，产出 `.exe` 安装包。
-7. 端到端联调与负向测试。
+5. 统计面板：transcript 解析（slug 定位 + 累加 `usage`）、会话时长计时、`~/.codasignal/stats.json` 持久化与汇总、统计窗口 UI、可配置费用估算。
+6. 编写 `hooks/setup-hooks.md` 与 `README.md`，给出 `~/.codebuddy/settings.json` 的 hook 片段。
+7. 配置 `electron-builder`，产出 `.exe` 安装包。
+8. 端到端联调与负向测试。
