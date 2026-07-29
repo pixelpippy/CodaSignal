@@ -22,7 +22,13 @@ function startServer(port, onEvent) {
       res.end();
     }
   });
-  return new Promise((resolve) => server.listen(p, '127.0.0.1', () => resolve(server)));
+  return new Promise((resolve) => {
+    server.on('error', () => {
+      // 端口被占用（EADDRINUSE）或其他监听错误：返回 null，由调用方退出避免多实例
+      resolve(null);
+    });
+    server.listen(p, '127.0.0.1', () => resolve(server));
+  });
 }
 
 module.exports = { startServer };

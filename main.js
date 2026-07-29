@@ -1,5 +1,5 @@
 // main.js
-const { app, BrowserWindow, Tray, Menu, ipcMain, shell } = require('electron');
+const { app, BrowserWindow, Tray, Menu, ipcMain, nativeImage } = require('electron');
 const path = require('node:path');
 const { AppState, projectNameFromCwd } = require('./src/state.js');
 const { startServer } = require('./src/server.js');
@@ -7,7 +7,7 @@ const { focusTerminal } = require('./src/focus.js');
 const {
   findTranscript, sumUsage, estimateCost, loadPrices, loadStats, recordSession, buildRecord,
 } = require('./src/stats.js');
-const { defaultPort, SIGNAL_DIR } = require('./src/config.js');
+const { defaultPort } = require('./src/config.js');
 
 let lightWin = null;
 let statsWin = null;
@@ -51,8 +51,14 @@ function openStatsWindow() {
   statsWin.on('closed', () => { statsWin = null; });
 }
 
+function makeIcon() {
+  // 16x16 红色圆点占位图标（base64 PNG），避免外部资源依赖
+  const b64 = 'iVBORw0KGgoAAAANSUhEUgAAAAQAAAAECAYAAACp8Z5+AAAAEklEQVR4nGP8z8Dwn4EIwDiqEAByqgQF6R0qgwAAAABJRU5ErkJggg==';
+  return nativeImage.createFromDataURL(`data:image/png;base64,${b64}`);
+}
+
 function buildTray() {
-  tray = new Tray(require('electron').nativeImage.createEmpty()); // 占位；详见 Task 8 替换为真实图标
+  tray = new Tray(makeIcon());
   const menu = Menu.buildFromTemplate([
     { label: '统计面板', click: () => openStatsWindow() },
     { label: '退出', click: () => app.quit() },
@@ -97,9 +103,11 @@ app.whenReady().then(async () => {
     if (event === 'SessionEnd') appState._recorded = false; // 允许下次 get-stats 落盘
     sendState();
   });
-  if (!server) { app.quit(); return; }
-  // 端口冲突时 startServer 返回 undefined → 退出避免多实例
-  if (server.listening === false) { app.quit(); }
+  if (!server) {
+    console.error('[CodaSignal] 端口被占用，可能已有一个实例在运行，退出。');
+    app.quit();
+    return;
+  }
 });
 
 app.on('window-all-closed', () => { /* 保持托盘常驻，不退出 */ });
