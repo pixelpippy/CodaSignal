@@ -29,8 +29,17 @@ class AppState {
     this.lastUpdate = Date.now();
   }
   applyEvent(event, extra = {}) {
-    const s = stateForEvent(event);
-    if (s) this.state = s;
+    if (event === 'Stop') {
+      // 仅当正在“执行中/等待审批”时，Stop 才表示本回合结束（变绿=已完成）。
+      // 若当前是空闲/已完成，说明这是会话开始时的占位 Stop（见日志：Stop 在
+      // SessionStart 之前发出），忽略之，否则会在一上来先闪一下绿灯。
+      if (this.state === 'yellow' || this.state === 'red') {
+        this.state = 'green';
+      }
+    } else {
+      const s = stateForEvent(event);
+      if (s) this.state = s;
+    }
     if (event === 'SessionStart') {
       this.startTs = Date.now();
       if (extra.cwd) this.cwd = extra.cwd;

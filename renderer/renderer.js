@@ -4,11 +4,6 @@ const labelEl = document.getElementById('label');
 const projectEl = document.getElementById('project');
 const minBtn = document.getElementById('minBtn');
 const lightsBox = document.querySelector('.lights');
-const statsPopup = document.getElementById('statsPopup');
-const spCur = document.getElementById('spCur');
-const spCost = document.getElementById('spCost');
-const spSessions = document.getElementById('spSessions');
-const spTokens = document.getElementById('spTokens');
 
 window.api.onState((s) => {
   lights.forEach((el) => el.classList.toggle('active', el.dataset.state === s.state));
@@ -16,44 +11,38 @@ window.api.onState((s) => {
   projectEl.textContent = s.project || '';
 });
 
-// 点击红绿灯 -> 回到终端
-lightsBox.addEventListener('click', () => window.api.focusTerminal());
-// 最小化按钮
+// 最小化按钮（不触发拖动）
 minBtn.addEventListener('click', () => window.api.minimize());
 
-// 鼠标悬停一段时间后显示统计信息
+// ---- 悬停红绿灯 -> 侧边统计弹窗 ----
+// 灯光容器 .lights 是系统级拖动区域（drag），但每个 .light 是 no-drag，
+// 指针事件会从 no-drag 子元素冒泡上来，所以用会冒泡的 mouseover/mouseout。
 let hoverTimer = null;
-function fmtMoney(n) {
-  if (n == null) return '—';
-  return '$' + (Math.round(n * 1000) / 1000).toFixed(3);
+function clearHover() {
+  if (hoverTimer) { clearTimeout(hoverTimer); hoverTimer = null; }
 }
-function fmtTokens(t) {
-  if (!t) return '—';
-  const total = t.total || (t.input + t.output) || 0;
-  return total.toLocaleString('en-US');
-}
-function fmtDur(ms) {
-  if (!ms) return '—';
-  const s = Math.round(ms / 1000);
-  const m = Math.floor(s / 60);
-  return m > 0 ? `${m}m ${s % 60}s` : `${s}s`;
-}
-function showStats() {
-  window.api.getStats().then((data) => {
-    if (!data) return;
-    const cur = data.current;
-    spCur.textContent = cur ? `${fmtTokens(cur.tokens)} · ${fmtDur(cur.durationMs)}` : '无';
-    spCost.textContent = fmtMoney(data.totals && data.totals.cost);
-    spSessions.textContent = (data.sessions ? data.sessions.length : 0).toString();
-    const t = data.totals && data.totals.tokens;
-    spTokens.textContent = fmtTokens(t);
-    statsPopup.classList.add('show');
-  });
-}
-document.body.addEventListener('mouseenter', () => {
-  hoverTimer = setTimeout(showStats, 500);
+lightsBox.addEventListener('mouseover', () => {
+  clearHover();
+  hoverTimer = setTimeout(() => {
+    window.api.getStats().then((data) => window.api.showHoverStats(data));
+  }, 500);
 });
-document.body.addEventListener('mouseleave', () => {
-  if (hoverTimer) clearTimeout(hoverTimer);
-  statsPopup.classList.remove('show');
+lightsBox.addEventListener('mouseout', (e) => {
+  if (e.relatedTarget && lightsBox.contains(e.relatedTarget)) return; // 仅在真正离开灯光区时隐藏
+  clearHover();
+  window.api.hideHoverStats();
+});
+
+// ---- 点击亮着的红绿灯 -> 回到终端 ----
+// 拖动完全由系统级 -webkit-app-region 处理（见 style.css）：在灯光区周围按下并移动 =
+// 原生移动窗口，不会触发 click；只有静止点击（未拖动）才会触发 click，
+// 因此“拖动”与“点击返回终端”互不干扰。
+// 注意：直接按在某个红绿灯圆点上（no-drag）不会发起拖动，只能点击/悬停；要拖动请按住圆点周围区域。
+lightsBox.addEventListener('mousedown', () => {
+  clearHover();
+  window.api.hideHoverStats();
+});
+lightsBox.addEventListener('click', () => {
+  const anyActive = lights.some((el) => el.classList.contains('active'));
+  if (anyActive) window.api.focusTerminal();
 });

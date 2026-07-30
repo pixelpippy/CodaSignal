@@ -1,0 +1,19 @@
+* { margin: 0; padding: 0; box-sizing: border-box; }
+html, body { width: 100%; height: 100%; }
+body {
+  background: #1c1c1e;
+  border: 1px solid rgba(255, 255, 255, 0.10);
+  border-radius: 0;
+  padding: 12px 14px;
+  font-family: -apple-system, "Segoe UI", "Microsoft YaHei", sans-serif;
+  color: #e6e6e6;
+  font-size: 12px; line-height: 1.7;
+  user-select: none;
+  overflow: hidden;
+}
+/* .box 只作为内容容器：不再自带背景/圆角/阴影，避免与方形不透明窗口(bg #1c1c1e)产生形状错位
+   形成用户看到的“第二层黑边”。整块面板就是窗口本身。 */
+.box { width: 100%; height: 100%; display: flex; flex-direction: column; justify-content: center; }
+.row { display: flex; justify-content: space-between; gap: 16px; }
+.row .k { opacity: 0.6; }
+.row .v { font-variant-numeric: tabular-nums; text-align: right; }

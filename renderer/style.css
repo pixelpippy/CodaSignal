@@ -1,16 +1,18 @@
 * { margin: 0; padding: 0; box-sizing: border-box; }
-html { background: transparent; }
+html, body { height: 100%; }
+html { background: #1c1c1e; }
 body {
-  background: rgba(28, 28, 30, 0.95);
+  background: #1c1c1e;
   border: 1px solid rgba(255, 255, 255, 0.10);
-  border-radius: 14px;
+  border-radius: 0;
   padding: 10px 10px 12px;
+  min-height: 100%;
   font-family: -apple-system, "Segoe UI", "Microsoft YaHei", sans-serif;
   color: #e6e6e6;
   user-select: none;
   overflow: hidden;
-  box-shadow: 0 10px 34px rgba(0, 0, 0, 0.55);
-  /* 允许从窗口任意位置拖动移动整体位置 */
+  /* 整个窗口作为系统级拖动区域，由 Electron 原生处理拖动。
+     透明无边框窗口若改用 JS setPosition 拖动，会被 Windows 误判为缩放，因此必须用原生 drag。 */
   -webkit-app-region: drag;
 }
 .titlebar {
@@ -35,12 +37,15 @@ body {
 .lights {
   display: flex; flex-direction: column; align-items: center; gap: 12px;
   padding: 8px 0 10px;
-  /* 灯光区可点击（回到终端），不触发拖动 */
-  -webkit-app-region: no-drag;
+  /* 灯光容器作为系统级拖动区域；每个 .light 单独设为 no-drag 以接收 hover/click。
+     这样既可以从灯光区周围拖动窗口，又能点击/悬停红绿灯，且不会触发 OS 缩放。 */
+  -webkit-app-region: drag;
   cursor: pointer;
 }
 .light {
   width: 54px; height: 54px; border-radius: 50%;
+  /* 关键：圆点本身 no-drag，才能收到 hover/click；拖动请按住圆点周围区域 */
+  -webkit-app-region: no-drag;
   background: #2a2a2a; transition: all 0.25s ease;
 }
 .light.red.active    { background: #ff4d4f; box-shadow: 0 0 24px 6px rgba(255, 77, 79, 0.8); }
@@ -49,15 +54,3 @@ body {
 .label { text-align: center; font-size: 15px; font-weight: 600; }
 .project { text-align: center; font-size: 11px; opacity: 0.6; margin-top: 4px;
   white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.stats-popup {
-  margin-top: 10px; padding: 8px 10px;
-  background: rgba(0, 0, 0, 0.35); border-radius: 8px;
-  font-size: 11px; line-height: 1.6;
-  max-height: 0; opacity: 0; overflow: hidden;
-  transition: max-height 0.2s ease, opacity 0.2s ease, padding 0.2s ease;
-  padding-top: 0; padding-bottom: 0;
-}
-.stats-popup.show { max-height: 220px; opacity: 1; padding-top: 8px; padding-bottom: 8px; }
-.stats-popup .sp-row { display: flex; justify-content: space-between; gap: 12px; }
-.stats-popup .sp-row .k { opacity: 0.6; }
-.stats-popup .sp-row .v { font-variant-numeric: tabular-nums; }

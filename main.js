@@ -1,5 +1,5 @@
 // main.js
-const { app, BrowserWindow, Tray, Menu, ipcMain, nativeImage } = require('electron');
+const { app, BrowserWindow, Tray, Menu, ipcMain, nativeImage, screen } = require('electron');
 const path = require('node:path');
 const zlib = require('node:zlib');
 
@@ -76,11 +76,23 @@ function sendState() {
 
 function createLightWindow() {
   lightWin = new BrowserWindow({
-    width: 180, height: 300, frame: false, transparent: true,
+    width: 110, height: 300, frame: false, transparent: false,
+    backgroundColor: '#1c1c1e',
     alwaysOnTop: true, resizable: false, skipTaskbar: true,
     webPreferences: { preload: path.join(__dirname, 'preload.js'), contextIsolation: true, nodeIntegration: false },
   });
   lightWin.loadFile(path.join(__dirname, 'renderer', 'index.html'));
+  // 硬锁尺寸，避免 transparent 无边框窗口在极端情况下被 Windows 缩放
+  lightWin.setResizable(false);
+  lightWin.setMinimumSize(110, 300);
+  lightWin.setMaximumSize(110, 300);
+  lightWin.setMaximizable(false);
+  // 关闭系统级 DWM 阴影：透明无边框窗口在 Windows 上会把原生阴影渲染成
+  // 一块硬边直角暗色矩形（即用户看到的“窗口下的第二层”）。视觉阴影改由 CSS box-shadow 提供。
+  lightWin.setHasShadow(false);
+  // 不透明无边框窗口尝试用系统圆角（避免透明背景透出黑底形成“第二层”）；
+  // 本机 Electron 31.7.7 无 setRoundedCorners，guard 后无副作用。
+  if (typeof lightWin.setRoundedCorners === 'function') lightWin.setRoundedCorners(true);
   lightWin.on('closed', () => { lightWin = null; });
 }
 
@@ -128,6 +140,40 @@ function buildTray() {
 
 ipcMain.on('focus-terminal', () => focusTerminal(appState.cwd));
 ipcMain.on('minimize-light', () => { if (lightWin) lightWin.minimize(); });
+let hoverWin = null;
+function createHoverWindow() {
+  hoverWin = new BrowserWindow({
+    width: 200, height: 190, frame: false, transparent: false,
+    backgroundColor: '#1c1c1e',
+    alwaysOnTop: true, resizable: false, skipTaskbar: true,
+    webPreferences: { preload: path.join(__dirname, 'preload.js'), contextIsolation: true, nodeIntegration: false },
+  });
+  hoverWin.loadFile(path.join(__dirname, 'renderer', 'hover.html'));
+  hoverWin.setHasShadow(false);
+  hoverWin.on('closed', () => { hoverWin = null; });
+  hoverWin.on('blur', () => hideHoverStats());
+}
+function showHoverStats(data) {
+  if (!hoverWin) createHoverWindow();
+  const lb = lightWin ? lightWin.getBounds() : { x: 0, y: 0, width: 0, height: 0 };
+  const w = 220, h = 210, gap = 10;
+  const area = screen.getDisplayNearestPoint({ x: lb.x, y: lb.y }).workArea;
+  let x = lb.x + lb.width + gap; // 默认右侧
+  if (x + w > area.x + area.width) x = lb.x - gap - w; // 右侧放不下 -> 左侧
+  hoverWin.setBounds({ x: Math.round(x), y: Math.round(lb.y), width: w, height: h });
+  hoverWin.webContents.send('hover-stats', data);
+  hoverWin.show();
+}
+let hoverHideTimer = null;
+function cancelHoverHide() { if (hoverHideTimer) { clearTimeout(hoverHideTimer); hoverHideTimer = null; } }
+function hideHoverStats() {
+  cancelHoverHide();
+  hoverHideTimer = setTimeout(() => { if (hoverWin) hoverWin.hide(); }, 200);
+}
+ipcMain.on('show-hover-stats', (_e, data) => { cancelHoverHide(); showHoverStats(data); });
+ipcMain.on('hide-hover-stats', () => hideHoverStats());
+ipcMain.on('hover-enter', () => cancelHoverHide());
+ipcMain.on('hover-leave', () => hideHoverStats());
 ipcMain.handle('get-stats', () => {
   const prices = loadPrices();
   const tokens = computeCurrentTokens();

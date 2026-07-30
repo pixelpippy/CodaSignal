@@ -32,3 +32,28 @@ test('AppState.applyEvent updates state and timestamps', () => {
 test('STATE_LABELS covers all states', () => {
   for (const k of ['idle','red','yellow','green']) assert.ok(STATE_LABELS[k]);
 });
+
+test('Stop while idle does not flash green (session-start placeholder Stop)', () => {
+  const s = new AppState();
+  // 守护进程在 SessionStart 之前先发一个 Stop；空闲时收到应被忽略
+  s.applyEvent('Stop');
+  assert.equal(s.state, 'idle');
+  s.applyEvent('SessionStart', { cwd: 'D:/x/Y' });
+  assert.equal(s.state, 'idle');
+  s.applyEvent('PreToolUse');
+  assert.equal(s.state, 'yellow');
+});
+
+test('Stop while working turns green (real turn end)', () => {
+  const s = new AppState();
+  s.applyEvent('PreToolUse');
+  s.applyEvent('Stop');
+  assert.equal(s.state, 'green');
+});
+
+test('Stop while awaiting approval turns green', () => {
+  const s = new AppState();
+  s.applyEvent('permission_prompt');
+  s.applyEvent('Stop');
+  assert.equal(s.state, 'green');
+});
