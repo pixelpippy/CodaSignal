@@ -33,10 +33,23 @@ body {
 .lights {
   display: flex; flex-direction: column; align-items: center; gap: 12px;
   padding: 8px 0 6px;
+  position: relative;
   /* 灯光容器作为系统级拖动区域；每个 .light 单独设为 no-drag 以接收 hover/click。
-     这样既可以从灯光区周围拖动窗口，又能点击/悬停红绿灯，且不会触发 OS 缩放。 */
+     这样既可以从灯光区周围拖动窗口，又能点击/悬停红绿灯，且不会触发 OS 缩放
+     （原生 drag 底层用 HTCAPTION 命中测试，不会像 JS setPosition 那样被误判为缩放）。 */
   -webkit-app-region: drag;
   cursor: pointer;
+}
+/* 顶部点状“把手”：提示可在红绿灯区域按住拖动窗口。
+   绝对定位 + pointer-events:none，不占布局、不挡事件，下方 drag 区域照常响应拖动。 */
+.lights::before {
+  content: "";
+  position: absolute; top: 2px; left: 50%; transform: translateX(-50%);
+  width: 30px; height: 4px;
+  background-image: radial-gradient(circle, rgba(255, 255, 255, 0.40) 1.2px, transparent 1.6px);
+  background-size: 7px 4px; background-repeat: repeat-x;
+  border-radius: 2px;
+  pointer-events: none;
 }
 .light {
   width: 54px; height: 54px; border-radius: 50%;
