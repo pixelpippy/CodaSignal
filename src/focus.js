@@ -5,7 +5,8 @@
 const { execFileSync } = require('node:child_process');
 
 // 候选终端进程名（不含 .exe）。按需增减。
-const TERMINAL_NAMES = ['wezterm', 'WindowsTerminal', 'conhost', 'mintty'];
+// 注意：wezterm 的实际 GUI 进程是 wezterm-gui（wezterm 只是多路复用守护），必须单列。
+const TERMINAL_NAMES = ['wezterm', 'wezterm-gui', 'WindowsTerminal', 'conhost', 'mintty'];
 
 function buildScript() {
   const namesLiteral = '@(' + TERMINAL_NAMES.map((n) => `"${n}"`).join(',') + ')';
