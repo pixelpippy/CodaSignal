@@ -35,6 +35,9 @@ body {
 .lights {
   display: flex; flex-direction: column; align-items: center; gap: 12px;
   padding: 8px 0 10px;
+  /* 灯光区可点击（回到终端），不触发拖动 */
+  -webkit-app-region: no-drag;
+  cursor: pointer;
 }
 .light {
   width: 54px; height: 54px; border-radius: 50%;

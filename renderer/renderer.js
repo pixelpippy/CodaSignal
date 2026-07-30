@@ -3,7 +3,7 @@ const lights = Array.from(document.querySelectorAll('.light'));
 const labelEl = document.getElementById('label');
 const projectEl = document.getElementById('project');
 const minBtn = document.getElementById('minBtn');
-const focusBtn = document.getElementById('focusBtn');
+const lightsBox = document.querySelector('.lights');
 const statsPopup = document.getElementById('statsPopup');
 const spCur = document.getElementById('spCur');
 const spCost = document.getElementById('spCost');
@@ -16,8 +16,9 @@ window.api.onState((s) => {
   projectEl.textContent = s.project || '';
 });
 
-// 显式按钮：回到终端 / 最小化
-focusBtn.addEventListener('click', () => window.api.focusTerminal());
+// 点击红绿灯 -> 回到终端
+lightsBox.addEventListener('click', () => window.api.focusTerminal());
+// 最小化按钮
 minBtn.addEventListener('click', () => window.api.minimize());
 
 // 鼠标悬停一段时间后显示统计信息

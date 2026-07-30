@@ -76,12 +76,19 @@ function sendState() {
 
 function createLightWindow() {
   lightWin = new BrowserWindow({
-    width: 180, height: 220, frame: false, transparent: true,
+    width: 180, height: 300, frame: false, transparent: true,
     alwaysOnTop: true, resizable: false, skipTaskbar: true,
     webPreferences: { preload: path.join(__dirname, 'preload.js'), contextIsolation: true, nodeIntegration: false },
   });
   lightWin.loadFile(path.join(__dirname, 'renderer', 'index.html'));
   lightWin.on('closed', () => { lightWin = null; });
+}
+
+function showLightWindow() {
+  if (!lightWin) { createLightWindow(); return; }
+  if (lightWin.isMinimized()) lightWin.restore();
+  lightWin.show();
+  lightWin.focus();
 }
 
 function computeCurrentTokens() {
@@ -110,12 +117,13 @@ function openStatsWindow() {
 function buildTray() {
   tray = new Tray(makeIcon(appState.state));
   const menu = Menu.buildFromTemplate([
+    { label: '显示悬浮窗', click: () => showLightWindow() },
     { label: '统计面板', click: () => openStatsWindow() },
     { label: '退出', click: () => app.quit() },
   ]);
   tray.setToolTip('CodaSignal');
   tray.setContextMenu(menu);
-  tray.on('click', () => focusTerminal(appState.cwd));
+  tray.on('click', () => showLightWindow());
 }
 
 ipcMain.on('focus-terminal', () => focusTerminal(appState.cwd));
