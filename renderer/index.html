@@ -5,7 +5,11 @@
   <link rel="stylesheet" href="style.css" />
 </head>
 <body>
-  <div class="titlebar">CodaSignal</div>
+  <div class="titlebar">
+    <span class="title">CodaSignal</span>
+    <button id="focusBtn" class="btn" title="回到终端">↩</button>
+    <button id="minBtn" class="btn" title="最小化">—</button>
+  </div>
   <div class="lights">
     <div class="light red" data-state="red"></div>
     <div class="light yellow" data-state="yellow"></div>
@@ -13,6 +17,12 @@
   </div>
   <div id="label" class="label">空闲</div>
   <div id="project" class="project"></div>
+  <div id="statsPopup" class="stats-popup">
+    <div class="sp-row"><span class="k">本会话</span><span class="v" id="spCur">—</span></div>
+    <div class="sp-row"><span class="k">累计花费</span><span class="v" id="spCost">—</span></div>
+    <div class="sp-row"><span class="k">累计会话</span><span class="v" id="spSessions">—</span></div>
+    <div class="sp-row"><span class="k">累计 Tokens</span><span class="v" id="spTokens">—</span></div>
+  </div>
   <script src="renderer.js"></script>
 </body>
 </html>
