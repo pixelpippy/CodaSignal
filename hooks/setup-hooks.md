@@ -18,7 +18,7 @@
       { "hooks": [ { "type": "command", "command": "curl -s -X POST http://127.0.0.1:18765/event -d '{\"event\":\"Stop\"}' || true" } ] }
     ],
     "SessionStart": [
-      { "hooks": [ { "type": "command", "command": "cwd=$(pwd); curl -s -X POST http://127.0.0.1:18765/event -d \"{\\\"event\\\":\\\"SessionStart\\\",\\\"cwd\\\":\\\"$cwd\\\"}\" || true" } ] }
+      { "hooks": [ { "type": "command", "command": "stdin=$(cat); body=$(printf '%s' \"$stdin\" | sed -E 's/[[:space:]]+$//; s/\\}$//'); printf '%s,\"cwd\":\"%s\"}' \"$body\" \"$PWD\" | curl -s -X POST http://127.0.0.1:18765/event -d @- || true" } ] }
     ],
     "SessionEnd": [
       { "hooks": [ { "type": "command", "command": "curl -s -X POST http://127.0.0.1:18765/event -d '{\"event\":\"SessionEnd\"}' || true" } ] }
@@ -30,7 +30,8 @@
 ## 说明
 
 - **每条命令结尾的 `|| true` 不可省略**：CodeBuddy 的 hook 如果返回非零退出码会中断执行；即使 CodaSignal 没启动（curl 连不上），`|| true` 也保证 hook 静默失败、不影响你的任务。
-- **Windows 上 hooks 由 Git Bash 执行**：命令必须用 bash 语法（单引号、`$(pwd)`、变量 `$cwd` 等），不要写成 PowerShell/cmd。
+- **`SessionStart` 如何拿到项目目录**：CodeBuddy 会把本次会话信息（含 `session_id`、`transcript_path`、`hook_event_name`）以 **JSON 打到 hook 的 stdin**，而不是 shell 的工作目录。上面的命令把这个 stdin 原样转发给 CodaSignal，并用 `$PWD`（hook 执行时已是项目目录）注入 `cwd` 字段。这样**不依赖 `$(pwd)` 解析**，也不受 Git Bash 路径格式影响。
+- **Windows 上 hooks 由 Git Bash 执行**：命令必须用 bash 语法（单引号、命令替换 `$(...)`、变量 `$PWD` 等），不要写成 PowerShell/cmd。
 - **端口覆盖**：如果你的 CodaSignal 用 `CODASIGNAL_PORT` 自定义了端口，把上面所有 `18765` 换成对应端口。
 - **生效方式**：修改 `settings.json` 后，在 CodeBuddy 里 `/hooks` 审查或重启会话即可生效。
 

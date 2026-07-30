@@ -24,6 +24,7 @@ class AppState {
     this.state = 'idle';
     this.cwd = undefined;
     this.sessionId = undefined;
+    this.transcriptPath = undefined;
     this.startTs = undefined;
     this.endTs = undefined;
     this.lastUpdate = Date.now();
@@ -43,7 +44,10 @@ class AppState {
     if (event === 'SessionStart') {
       this.startTs = Date.now();
       if (extra.cwd) this.cwd = extra.cwd;
-      if (extra.sessionId) this.sessionId = extra.sessionId;
+      if (extra.sessionId || extra.session_id) this.sessionId = extra.sessionId || extra.session_id;
+      // CodeBuddy 在 hook 的 stdin(JSON) 里直接给出本次会话 transcript 的精确路径，
+      // 用它读统计最可靠，可避开“cwd 经过 slug 编码后大小写/斜杠不一致”导致找不到目录的问题。
+      if (extra.transcript_path) this.transcriptPath = extra.transcript_path;
     }
     if (event === 'SessionEnd' || event === 'Stop') {
       this.endTs = Date.now();

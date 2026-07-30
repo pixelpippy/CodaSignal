@@ -1,6 +1,7 @@
 // main.js
 const { app, BrowserWindow, Tray, Menu, ipcMain, nativeImage, screen } = require('electron');
 const path = require('node:path');
+const fs = require('node:fs');
 const zlib = require('node:zlib');
 
 // --- 状态色托盘图标（生成 16x16 圆形 PNG，避免外部资源依赖） ---
@@ -60,7 +61,7 @@ const { AppState, projectNameFromCwd } = require('./src/state.js');
 const { startServer } = require('./src/server.js');
 const { focusTerminal } = require('./src/focus.js');
 const {
-  findTranscript, sumUsage, estimateCost, loadPrices, loadStats, recordSession, buildRecord,
+  findTranscript, sumUsage, estimateCost, loadPrices, loadStats, upsertSession, buildRecord,
 } = require('./src/stats.js');
 const { defaultPort } = require('./src/config.js');
 
@@ -104,6 +105,10 @@ function showLightWindow() {
 }
 
 function computeCurrentTokens() {
+  // 优先用 SessionStart 直接给的 transcript_path（精确、无需 slug 猜测、避开大小写坑）
+  if (appState.transcriptPath && fs.existsSync(appState.transcriptPath)) {
+    return sumUsage(appState.transcriptPath);
+  }
   if (!appState.cwd) return null;
   const tp = findTranscript(appState.cwd);
   if (!tp) return null;
@@ -197,21 +202,16 @@ app.whenReady().then(async () => {
   buildTray();
   const server = await startServer(defaultPort(), (event, data) => {
     appState.applyEvent(event, data || {});
-    // 会话结束时自动落盘一条记录（spec §10），按 (cwd,startTs) 去重，避免重复计数
-    if (event === 'SessionEnd' && appState.startTs) {
-      const stored = loadStats();
-      const dup = stored.sessions.find(
-        (s) => s.cwd === appState.cwd && s.startTs === appState.startTs
-      );
-      if (!dup) {
-        const prices = loadPrices();
-        const tk = computeCurrentTokens() || { input: 0, output: 0, cacheCreation: 0, cacheRead: 0, total: 0 };
-        recordSession(buildRecord({
-          sessionId: appState.sessionId, cwd: appState.cwd,
-          project: projectNameFromCwd(appState.cwd),
-          startTs: appState.startTs, endTs: appState.endTs, tokens: tk,
-        }, prices));
-      }
+    // 每轮结束(Stop)与整段会话结束(SessionEnd)都 upsert 一条记录（按 cwd+startTs 去重更新），
+    // 这样中途即可看到累计，不再只等 SessionEnd 才落盘。
+    if ((event === 'Stop' || event === 'SessionEnd') && appState.startTs) {
+      const prices = loadPrices();
+      const tk = computeCurrentTokens() || { input: 0, output: 0, cacheCreation: 0, cacheRead: 0, total: 0 };
+      upsertSession(buildRecord({
+        sessionId: appState.sessionId, cwd: appState.cwd,
+        project: projectNameFromCwd(appState.cwd),
+        startTs: appState.startTs, endTs: appState.endTs, tokens: tk,
+      }, prices));
     }
     sendState();
   });

@@ -20,13 +20,24 @@ function cwdToSlug(cwd) {
 }
 
 function findTranscript(cwd, projectsDir = PROJECTS_DIR) {
-  const dir = path.join(projectsDir, cwdToSlug(cwd));
-  if (!fs.existsSync(dir)) return null;
-  const files = fs.readdirSync(dir)
-    .filter((f) => f.endsWith('.jsonl'))
-    .map((f) => ({ f, m: fs.statSync(path.join(dir, f)).mtimeMs }))
-    .sort((a, b) => b.m - a.m);
-  return files.length ? path.join(dir, files[0].f) : null;
+  if (!cwd) return null;
+  // 同一个 cwd 在不同来源下斜杠/盘符写法不一（D:\x / D:/x / /d/x），
+  // cwdToSlug 已统一，但再试几种变体以提高命中率。
+  const variants = [
+    cwdToSlug(cwd),
+    cwdToSlug(String(cwd).replace(/\\/g, '/')),
+    cwdToSlug(String(cwd).replace(/\\/g, '/').replace(/^([a-z]):/i, '-$1')),
+  ];
+  for (const slug of variants) {
+    const dir = path.join(projectsDir, slug);
+    if (!fs.existsSync(dir)) continue;
+    const files = fs.readdirSync(dir)
+      .filter((f) => f.endsWith('.jsonl'))
+      .map((f) => ({ f, m: fs.statSync(path.join(dir, f)).mtimeMs }))
+      .sort((a, b) => b.m - a.m);
+    if (files.length) return path.join(dir, files[0].f);
+  }
+  return null;
 }
 
 function extractUsage(o) {
@@ -112,6 +123,28 @@ function recordSession(rec, dir = SIGNAL_DIR) {
   return data;
 }
 
+// 按 (cwd, startTs) 更新或新增一条会话记录，并据此重算累计，避免重复计数/翻倍。
+// 用于每轮 Stop 也落盘：中途即可看到累计。
+function upsertSession(rec, dir = SIGNAL_DIR) {
+  const data = loadStats(dir);
+  const i = data.sessions.findIndex((s) => s.cwd === rec.cwd && s.startTs === rec.startTs);
+  if (i >= 0) data.sessions[i] = rec;
+  else data.sessions.push(rec);
+  const totals = data.sessions.reduce(
+    (t, s) => ({
+      count: t.count + 1,
+      durationMs: t.durationMs + (s.durationMs || 0),
+      tokens: t.tokens + (s.tokens.total || 0),
+      cost: t.cost + (s.cost || 0),
+    }),
+    { count: 0, durationMs: 0, tokens: 0, cost: 0 }
+  );
+  data.totals = totals;
+  fs.mkdirSync(dir, { recursive: true });
+  fs.writeFileSync(path.join(dir, 'stats.json'), JSON.stringify(data, null, 2));
+  return data;
+}
+
 module.exports = {
   DEFAULT_PRICES,
   cwdToSlug,
@@ -121,6 +154,7 @@ module.exports = {
   loadPrices,
   loadStats,
   recordSession,
+  upsertSession,
   buildRecord,
   emptyStats,
 };

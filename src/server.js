@@ -10,7 +10,9 @@ function startServer(port, onEvent) {
       req.on('end', () => {
         try {
           const data = JSON.parse(body || '{}');
-          if (typeof onEvent === 'function') onEvent(data.event, data);
+          // CodeBuddy 原生以 hook_event_name 命名事件，并可能直接带 event 字段，二者都支持。
+          const event = data.event || data.hook_event_name;
+          if (typeof onEvent === 'function') onEvent(event, data);
         } catch {
           // 忽略坏请求，仍回 200，避免守护进程崩溃
         }
