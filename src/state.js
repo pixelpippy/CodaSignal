@@ -1,6 +1,7 @@
 // src/state.js
 const EVENT_TO_STATE = {
   permission_prompt: 'red',
+  UserPromptSubmit: 'yellow',
   PreToolUse: 'yellow',
   PostToolUse: 'yellow',
   Stop: 'green',
@@ -11,7 +12,7 @@ const EVENT_TO_STATE = {
 const STATE_LABELS = {
   idle: '空闲',
   red: '等待审批',
-  yellow: '执行中',
+  yellow: '思考中',
   green: '已完成',
 };
 
