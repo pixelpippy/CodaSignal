@@ -23,6 +23,7 @@ function stateForEvent(event) {
 class AppState {
   constructor() {
     this.state = 'idle';
+    this.phase = null;
     this.cwd = undefined;
     this.sessionId = undefined;
     this.transcriptPath = undefined;
@@ -37,10 +38,20 @@ class AppState {
       // SessionStart 之前发出），忽略之，否则会在一上来先闪一下绿灯。
       if (this.state === 'yellow' || this.state === 'red') {
         this.state = 'green';
+        this.phase = null;
       }
     } else {
       const s = stateForEvent(event);
-      if (s) this.state = s;
+      if (s) {
+        this.state = s;
+        // 黄灯区分“思考中”与“执行中”：UserPromptSubmit 是你刚发消息、模型开始思考；
+        // PreToolUse/PostToolUse 是模型真正在调用工具。其它状态不保留 phase。
+        if (s === 'yellow') {
+          this.phase = event === 'UserPromptSubmit' ? 'thinking' : 'executing';
+        } else {
+          this.phase = null;
+        }
+      }
     }
     if (event === 'SessionStart') {
       this.startTs = Date.now();
@@ -57,9 +68,13 @@ class AppState {
     return this;
   }
   snapshot(projectName) {
+    // 黄灯文字随阶段切换：思考中（刚发消息、模型推理） / 执行中（正在调用工具）
+    const label = this.state === 'yellow' && this.phase === 'executing'
+      ? '执行中'
+      : (STATE_LABELS[this.state] || this.state);
     return {
       state: this.state,
-      label: STATE_LABELS[this.state] || this.state,
+      label,
       cwd: this.cwd,
       project: projectName || (this.cwd ? projectNameFromCwd(this.cwd) : ''),
       startTs: this.startTs,

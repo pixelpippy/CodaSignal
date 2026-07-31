@@ -57,3 +57,17 @@ test('Stop while awaiting approval turns green', () => {
   s.applyEvent('Stop');
   assert.equal(s.state, 'green');
 });
+
+test('yellow label: UserPromptSubmit=思考中, PreToolUse=执行中', () => {
+  const s = new AppState();
+  s.applyEvent('UserPromptSubmit');
+  assert.equal(s.state, 'yellow');
+  assert.equal(s.phase, 'thinking');
+  assert.equal(s.snapshot().label, '思考中');
+  s.applyEvent('PreToolUse');
+  assert.equal(s.phase, 'executing');
+  assert.equal(s.snapshot().label, '执行中');
+  s.applyEvent('Stop');
+  assert.equal(s.state, 'green');
+  assert.equal(s.phase, null);
+});

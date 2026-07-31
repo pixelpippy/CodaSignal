@@ -45,5 +45,5 @@
 | --- | --- |
 | `permission_prompt`（Notification） | 红（等待审批） |
 | `UserPromptSubmit` | 黄（思考中）—— 用户一发消息、CodeBuddy 开始处理前即触发，让灯**不延迟**地亮起 |
-| `PreToolUse` / `PostToolUse` | 黄（思考中） |
+| `PreToolUse` / `PostToolUse` | 黄（执行中） |
 | `Stop` / `SessionStart` / `SessionEnd` | 绿 / 空闲 |
