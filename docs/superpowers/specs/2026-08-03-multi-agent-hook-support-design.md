@@ -111,6 +111,7 @@ Codex CLI 的 hook 配置通常为 `hooks.json`，预期位置 `~/.codex/hooks.j
 3. 校验生成的 JSON 合法（`node -e "JSON.parse(require('fs').readFileSync(path,'utf8'))"`）。
 4. 重启对应 agent 工具使配置生效。
 5. 触发一次会话，观察 CodaSignal 灯色变化与 `stats.js` 能读到 `transcript_path`。
+6. 更新仓库内的 `hooks/setup-hooks.md`：在现有 CodeBuddy 章节之外，新增「Claude Code」与「OpenAI Codex」两节，给出各自配置文件路径与第 4 节通用模板，并说明合并而非覆盖现有配置。
 
 ## 7. 风险与缓解
 
@@ -129,4 +130,4 @@ Codex CLI 的 hook 配置通常为 `hooks.json`，预期位置 `~/.codex/hooks.j
 - `UserPromptSubmit` 出现时（Claude Code）灯应尽早变黄（思考中）。
 - `get-stats` 能拿到非空 `transcriptPath` 与非零 tokens（取决于该会话是否产生 usage）。
 - CodaSignal 未启动时，agent 流程不受影响（`|| true` 兜底）。
-- 应用代码与 UI 无改动（`git diff --stat` 仅含配置文件 / 文档）。
+- 应用代码与 UI 无改动。`~/.claude/settings.json`、`~/.codex/hooks.json` 等机器配置在仓库之外，不进 git；仓库内 `git diff --stat` 仅含文档改动（本 spec 与 `hooks/setup-hooks.md`）。
