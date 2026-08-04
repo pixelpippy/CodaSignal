@@ -20,26 +20,34 @@ stdin=$(cat); body=$(printf '%s' "$stdin" | sed -E 's/[[:space:]]+$//; s/\}$//')
 
 ## 共享脚本（推荐）
 
-上面的「通用模板」是单条 bash 命令。把它放进一个脚本文件、让所有工具的 hook 都调用该脚本，可避免 JSON / TOML 里的引号转义问题，也方便统一维护（端口、字段映射只改一处）。
+上面的「通用模板」是单条 bash 命令。把它放进一个脚本文件、让所有工具的 hook 都调用该脚本，可避免 JSON / TOML 里的引号转义问题，也方便统一维护（端口、字段映射只改一处）。**脚本必须保持「静默 + 始终退出 0」**：Claude Code / Codex 的 hook 系统会读取 stdout，脚本一旦向 stdout 输出内容（如 curl 的 HTTP 响应）就可能被误判为 hook 失败；任一事件出错也不应影响 CLI 运行。
 
 - 脚本：`$HOME/.codasignal/hook.sh`
 
   ```bash
   #!/usr/bin/env bash
+  # 必须保持「静默 + 始终退出 0」：hook 系统会读 stdout，
+  # 且任一事件失败都不应影响 CLI 运行。
   PORT="${CODASIGNAL_PORT:-18765}"
+
+  # 部分 hook 运行环境 PATH 较精简，显式补上 Git Bash 工具目录，确保 curl / sed 可找到。
+  export PATH="/usr/bin:/bin:/mingw64/bin:$PATH"
+
   stdin=$(cat)
   body=$(printf '%s' "$stdin" | sed -E 's/[[:space:]]+$//; s/\}$//')
   printf '%s,"cwd":"%s"}' "$body" "$PWD" \
-    | curl -s -X POST "http://127.0.0.1:${PORT}/event" -d @- || true
+    | curl -s -X POST "http://127.0.0.1:${PORT}/event" -d @- >/dev/null 2>&1 || true
+
+  exit 0
   ```
 
 - 各工具的 hook 命令统一写成（注意是 POSIX shell 语法，本机 hook 由 Git Bash 执行）：
 
   ```bash
-  bash "$HOME/.codasignal/hook.sh"
+  /usr/bin/bash "$HOME/.codasignal/hook.sh"
   ```
 
-若 `bash` 不在 hook 的 PATH 上，写成绝对路径，例如 `C:/Program Files/Git/usr/bin/bash.exe "$HOME/.codasignal/hook.sh"`。下方的 Claude Code / Codex 章节示例均使用此共享脚本。
+若 `bash` 不在 hook 的 PATH 上（或想更稳），用绝对路径 `/usr/bin/bash "$HOME/.codasignal/hook.sh"`（或 Windows 绝对路径 `C:/Program Files/Git/usr/bin/bash.exe "$HOME/.codasignal/hook.sh"`）。下方的 Claude Code / Codex 章节示例均使用此共享脚本写法。该脚本保持「静默且始终退出 0」：CodaSignal 未启动、curl/sed 缺失都不会让 hook 失败，也不向 stdout 输出内容，避免被 Claude Code / Codex 的 hook 系统误判。
 
 ## CodeBuddy
 
@@ -49,25 +57,25 @@ stdin=$(cat); body=$(printf '%s' "$stdin" | sed -E 's/[[:space:]]+$//; s/\}$//')
 {
   "hooks": {
     "Notification": [
-      { "matcher": "permission_prompt", "hooks": [ { "type": "command", "command": "bash \"$HOME/.codasignal/hook.sh\"" } ] }
+      { "matcher": "permission_prompt", "hooks": [ { "type": "command", "command": "/usr/bin/bash \"$HOME/.codasignal/hook.sh\"" } ] }
     ],
     "PreToolUse": [
-      { "hooks": [ { "type": "command", "command": "bash \"$HOME/.codasignal/hook.sh\"" } ] }
+      { "hooks": [ { "type": "command", "command": "/usr/bin/bash \"$HOME/.codasignal/hook.sh\"" } ] }
     ],
     "PostToolUse": [
-      { "hooks": [ { "type": "command", "command": "bash \"$HOME/.codasignal/hook.sh\"" } ] }
+      { "hooks": [ { "type": "command", "command": "/usr/bin/bash \"$HOME/.codasignal/hook.sh\"" } ] }
     ],
     "UserPromptSubmit": [
-      { "hooks": [ { "type": "command", "command": "bash \"$HOME/.codasignal/hook.sh\"" } ] }
+      { "hooks": [ { "type": "command", "command": "/usr/bin/bash \"$HOME/.codasignal/hook.sh\"" } ] }
     ],
     "Stop": [
-      { "hooks": [ { "type": "command", "command": "bash \"$HOME/.codasignal/hook.sh\"" } ] }
+      { "hooks": [ { "type": "command", "command": "/usr/bin/bash \"$HOME/.codasignal/hook.sh\"" } ] }
     ],
     "SessionStart": [
-      { "hooks": [ { "type": "command", "command": "bash \"$HOME/.codasignal/hook.sh\"" } ] }
+      { "hooks": [ { "type": "command", "command": "/usr/bin/bash \"$HOME/.codasignal/hook.sh\"" } ] }
     ],
     "SessionEnd": [
-      { "hooks": [ { "type": "command", "command": "bash \"$HOME/.codasignal/hook.sh\"" } ] }
+      { "hooks": [ { "type": "command", "command": "/usr/bin/bash \"$HOME/.codasignal/hook.sh\"" } ] }
     ]
   }
 }
@@ -77,7 +85,7 @@ stdin=$(cat); body=$(printf '%s' "$stdin" | sed -E 's/[[:space:]]+$//; s/\}$//')
 
 ## 说明
 
-- **每条命令结尾的 `|| true` 不可省略**：CodeBuddy 的 hook 如果返回非零退出码会中断执行；即使 CodaSignal 没启动（curl 连不上），`|| true` 也保证 hook 静默失败、不影响你的任务。
+- **每条命令必须「静默 + 退出 0」**：CodeBuddy / Claude Code / Codex 的 hook 系统都会读取 hook 的 stdout，且 hook 返回非零退出码会中断对应事件。共享脚本已用 `>/dev/null 2>&1 || true` + `exit 0` 兜底——即使 CodaSignal 没启动（curl 连不上）也静默成功，不影响你的任务。
 - **项目目录从哪来**：CodeBuddy 会把本次会话信息（含 `session_id`、`transcript_path`、`hook_event_name`）以 **JSON 打到 hook 的 stdin**，而不是 shell 的工作目录。模板把这个 stdin 原样转发给 CodaSignal，并用 `$PWD`（hook 执行时已是项目目录）注入 `cwd` 字段。这样**不依赖 `$(pwd)` 解析**，也不受 Git Bash 路径格式影响。
 - **`session_id` 必须每个事件都带**：CodaSignal 按 `session_id` 维护多会话状态并聚合灯色。缺 `session_id` 的事件会落到「最近活跃会话」兜底逻辑上，多会话并发时可能张冠李戴——所以别偷懒改成字面量 JSON。
 - **Windows 上 hooks 由 Git Bash 执行**：命令必须用 bash 语法（单引号、命令替换 `$(...)`、变量 `$PWD` 等），不要写成 PowerShell/cmd。
@@ -109,25 +117,25 @@ stdin=$(cat); body=$(printf '%s' "$stdin" | sed -E 's/[[:space:]]+$//; s/\}$//')
 {
   "hooks": {
     "PreToolUse": [
-      { "hooks": [ { "command": "bash \"$HOME/.codasignal/hook.sh\"", "type": "command" } ] }
+      { "hooks": [ { "command": "/usr/bin/bash \"$HOME/.codasignal/hook.sh\"", "type": "command" } ] }
     ],
     "PostToolUse": [
-      { "hooks": [ { "command": "bash \"$HOME/.codasignal/hook.sh\"", "type": "command" } ] }
+      { "hooks": [ { "command": "/usr/bin/bash \"$HOME/.codasignal/hook.sh\"", "type": "command" } ] }
     ],
     "UserPromptSubmit": [
-      { "hooks": [ { "command": "bash \"$HOME/.codasignal/hook.sh\"", "type": "command" } ] }
+      { "hooks": [ { "command": "/usr/bin/bash \"$HOME/.codasignal/hook.sh\"", "type": "command" } ] }
     ],
     "SessionStart": [
-      { "hooks": [ { "command": "bash \"$HOME/.codasignal/hook.sh\"", "type": "command" } ] }
+      { "hooks": [ { "command": "/usr/bin/bash \"$HOME/.codasignal/hook.sh\"", "type": "command" } ] }
     ],
     "Stop": [
-      { "hooks": [ { "command": "bash \"$HOME/.codasignal/hook.sh\"", "type": "command" } ] }
+      { "hooks": [ { "command": "/usr/bin/bash \"$HOME/.codasignal/hook.sh\"", "type": "command" } ] }
     ],
     "SessionEnd": [
-      { "hooks": [ { "command": "bash \"$HOME/.codasignal/hook.sh\"", "type": "command" } ] }
+      { "hooks": [ { "command": "/usr/bin/bash \"$HOME/.codasignal/hook.sh\"", "type": "command" } ] }
     ],
     "Notification": [
-      { "matcher": "permission_prompt", "hooks": [ { "command": "bash \"$HOME/.codasignal/hook.sh\"", "type": "command" } ] }
+      { "matcher": "permission_prompt", "hooks": [ { "command": "/usr/bin/bash \"$HOME/.codasignal/hook.sh\"", "type": "command" } ] }
     ]
   }
 }
@@ -147,38 +155,38 @@ Codex CLI 的 hook 有两种等效写法，二选一（同一层不要混用，�
    [[hooks.SessionStart]]
    [[hooks.SessionStart.hooks]]
    type = "command"
-   command = 'bash "$HOME/.codasignal/hook.sh"'
+   command = '/usr/bin/bash "$HOME/.codasignal/hook.sh"'
 
    [[hooks.UserPromptSubmit]]
    [[hooks.UserPromptSubmit.hooks]]
    type = "command"
-   command = 'bash "$HOME/.codasignal/hook.sh"'
+   command = '/usr/bin/bash "$HOME/.codasignal/hook.sh"'
 
    [[hooks.PreToolUse]]
    [[hooks.PreToolUse.hooks]]
    type = "command"
-   command = 'bash "$HOME/.codasignal/hook.sh"'
+   command = '/usr/bin/bash "$HOME/.codasignal/hook.sh"'
 
    [[hooks.PostToolUse]]
    [[hooks.PostToolUse.hooks]]
    type = "command"
-   command = 'bash "$HOME/.codasignal/hook.sh"'
+   command = '/usr/bin/bash "$HOME/.codasignal/hook.sh"'
 
    [[hooks.Stop]]
    [[hooks.Stop.hooks]]
    type = "command"
-   command = 'bash "$HOME/.codasignal/hook.sh"'
+   command = '/usr/bin/bash "$HOME/.codasignal/hook.sh"'
 
    [[hooks.SessionEnd]]
    [[hooks.SessionEnd.hooks]]
    type = "command"
-   command = 'bash "$HOME/.codasignal/hook.sh"'
+   command = '/usr/bin/bash "$HOME/.codasignal/hook.sh"'
 
    [[hooks.Notification]]
    matcher = "permission_prompt"
    [[hooks.Notification.hooks]]
    type = "command"
-   command = 'bash "$HOME/.codasignal/hook.sh"'
+   command = '/usr/bin/bash "$HOME/.codasignal/hook.sh"'
    ```
 
    > TOML 单引号字符串内不处理反斜杠转义，所以命令里直接用 `"..."` 即可，无需写成 `\"`。
