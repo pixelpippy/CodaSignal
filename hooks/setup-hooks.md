@@ -47,3 +47,15 @@
 | `UserPromptSubmit` | 黄（思考中）—— 用户一发消息、CodeBuddy 开始处理前即触发，让灯**不延迟**地亮起 |
 | `PreToolUse` / `PostToolUse` | 黄（执行中） |
 | `Stop` / `SessionStart` / `SessionEnd` | 绿 / 空闲 |
+
+## Claude Code
+
+配置文件：`~/.claude/settings.json`（结构同 CodeBuddy 的 `hooks` 块）。对以下事件各加一个 command hook，命令均用上方「通用模板」：
+
+- `SessionStart`、`UserPromptSubmit`、`PreToolUse`、`PostToolUse`、`Stop`、`SessionEnd`
+
+注意：Claude Code 会在 stdin 的 JSON 中给出 `session_id` / `transcript_path` / `cwd` / `hook_event_name`，**务必原样转发**（模板已处理），CodaSignal 靠 `session_id` 区分并发会话。合并时保留文件已有其它配置项，勿整体覆盖。JSON 内双引号需转义为 `\"`。
+
+## OpenAI Codex
+
+Codex CLI 的 hook 配置通常为 `hooks.json`，预期位置 `~/.codex/hooks.json`（以 `codex` 文档为准；事件名与上面一致）。命令同样用「通用模板」。**若 Codex 不发出 `UserPromptSubmit`，灯会在 `PreToolUse` 才变黄**，属已知可接受差异。
