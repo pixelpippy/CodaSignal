@@ -22,7 +22,7 @@ stdin=$(cat); body=$(printf '%s' "$stdin" | sed -E 's/[[:space:]]+$//; s/\}$//')
 
 上面的「通用模板」是单条 bash 命令。把它放进一个脚本文件、让所有工具的 hook 都调用该脚本，可避免 JSON / TOML 里的引号转义问题，也方便统一维护（端口、字段映射只改一处）。
 
-- 脚本：`~/.codasignal/hook.sh`
+- 脚本：`$HOME/.codasignal/hook.sh`
 
   ```bash
   #!/usr/bin/env bash
@@ -36,10 +36,10 @@ stdin=$(cat); body=$(printf '%s' "$stdin" | sed -E 's/[[:space:]]+$//; s/\}$//')
 - 各工具的 hook 命令统一写成（注意是 POSIX shell 语法，本机 hook 由 Git Bash 执行）：
 
   ```bash
-  bash "~/.codasignal/hook.sh"
+  bash "$HOME/.codasignal/hook.sh"
   ```
 
-若 `bash` 不在 hook 的 PATH 上，写成绝对路径，例如 `C:/Program Files/Git/usr/bin/bash.exe "~/.codasignal/hook.sh"`。下方的 Claude Code / Codex 章节示例均使用此共享脚本。
+若 `bash` 不在 hook 的 PATH 上，写成绝对路径，例如 `C:/Program Files/Git/usr/bin/bash.exe "$HOME/.codasignal/hook.sh"`。下方的 Claude Code / Codex 章节示例均使用此共享脚本。
 
 ## CodeBuddy
 
@@ -49,25 +49,25 @@ stdin=$(cat); body=$(printf '%s' "$stdin" | sed -E 's/[[:space:]]+$//; s/\}$//')
 {
   "hooks": {
     "Notification": [
-      { "matcher": "permission_prompt", "hooks": [ { "type": "command", "command": "bash \"~/.codasignal/hook.sh\"" } ] }
+      { "matcher": "permission_prompt", "hooks": [ { "type": "command", "command": "bash \"$HOME/.codasignal/hook.sh\"" } ] }
     ],
     "PreToolUse": [
-      { "hooks": [ { "type": "command", "command": "bash \"~/.codasignal/hook.sh\"" } ] }
+      { "hooks": [ { "type": "command", "command": "bash \"$HOME/.codasignal/hook.sh\"" } ] }
     ],
     "PostToolUse": [
-      { "hooks": [ { "type": "command", "command": "bash \"~/.codasignal/hook.sh\"" } ] }
+      { "hooks": [ { "type": "command", "command": "bash \"$HOME/.codasignal/hook.sh\"" } ] }
     ],
     "UserPromptSubmit": [
-      { "hooks": [ { "type": "command", "command": "bash \"~/.codasignal/hook.sh\"" } ] }
+      { "hooks": [ { "type": "command", "command": "bash \"$HOME/.codasignal/hook.sh\"" } ] }
     ],
     "Stop": [
-      { "hooks": [ { "type": "command", "command": "bash \"~/.codasignal/hook.sh\"" } ] }
+      { "hooks": [ { "type": "command", "command": "bash \"$HOME/.codasignal/hook.sh\"" } ] }
     ],
     "SessionStart": [
-      { "hooks": [ { "type": "command", "command": "bash \"~/.codasignal/hook.sh\"" } ] }
+      { "hooks": [ { "type": "command", "command": "bash \"$HOME/.codasignal/hook.sh\"" } ] }
     ],
     "SessionEnd": [
-      { "hooks": [ { "type": "command", "command": "bash \"~/.codasignal/hook.sh\"" } ] }
+      { "hooks": [ { "type": "command", "command": "bash \"$HOME/.codasignal/hook.sh\"" } ] }
     ]
   }
 }
@@ -109,25 +109,25 @@ stdin=$(cat); body=$(printf '%s' "$stdin" | sed -E 's/[[:space:]]+$//; s/\}$//')
 {
   "hooks": {
     "PreToolUse": [
-      { "hooks": [ { "command": "bash \"~/.codasignal/hook.sh\"", "type": "command" } ] }
+      { "hooks": [ { "command": "bash \"$HOME/.codasignal/hook.sh\"", "type": "command" } ] }
     ],
     "PostToolUse": [
-      { "hooks": [ { "command": "bash \"~/.codasignal/hook.sh\"", "type": "command" } ] }
+      { "hooks": [ { "command": "bash \"$HOME/.codasignal/hook.sh\"", "type": "command" } ] }
     ],
     "UserPromptSubmit": [
-      { "hooks": [ { "command": "bash \"~/.codasignal/hook.sh\"", "type": "command" } ] }
+      { "hooks": [ { "command": "bash \"$HOME/.codasignal/hook.sh\"", "type": "command" } ] }
     ],
     "SessionStart": [
-      { "hooks": [ { "command": "bash \"~/.codasignal/hook.sh\"", "type": "command" } ] }
+      { "hooks": [ { "command": "bash \"$HOME/.codasignal/hook.sh\"", "type": "command" } ] }
     ],
     "Stop": [
-      { "hooks": [ { "command": "bash \"~/.codasignal/hook.sh\"", "type": "command" } ] }
+      { "hooks": [ { "command": "bash \"$HOME/.codasignal/hook.sh\"", "type": "command" } ] }
     ],
     "SessionEnd": [
-      { "hooks": [ { "command": "bash \"~/.codasignal/hook.sh\"", "type": "command" } ] }
+      { "hooks": [ { "command": "bash \"$HOME/.codasignal/hook.sh\"", "type": "command" } ] }
     ],
     "Notification": [
-      { "matcher": "permission_prompt", "hooks": [ { "command": "bash \"~/.codasignal/hook.sh\"", "type": "command" } ] }
+      { "matcher": "permission_prompt", "hooks": [ { "command": "bash \"$HOME/.codasignal/hook.sh\"", "type": "command" } ] }
     ]
   }
 }
@@ -147,38 +147,38 @@ Codex CLI 的 hook 有两种等效写法，二选一（同一层不要混用，�
    [[hooks.SessionStart]]
    [[hooks.SessionStart.hooks]]
    type = "command"
-   command = 'bash "~/.codasignal/hook.sh"'
+   command = 'bash "$HOME/.codasignal/hook.sh"'
 
    [[hooks.UserPromptSubmit]]
    [[hooks.UserPromptSubmit.hooks]]
    type = "command"
-   command = 'bash "~/.codasignal/hook.sh"'
+   command = 'bash "$HOME/.codasignal/hook.sh"'
 
    [[hooks.PreToolUse]]
    [[hooks.PreToolUse.hooks]]
    type = "command"
-   command = 'bash "~/.codasignal/hook.sh"'
+   command = 'bash "$HOME/.codasignal/hook.sh"'
 
    [[hooks.PostToolUse]]
    [[hooks.PostToolUse.hooks]]
    type = "command"
-   command = 'bash "~/.codasignal/hook.sh"'
+   command = 'bash "$HOME/.codasignal/hook.sh"'
 
    [[hooks.Stop]]
    [[hooks.Stop.hooks]]
    type = "command"
-   command = 'bash "~/.codasignal/hook.sh"'
+   command = 'bash "$HOME/.codasignal/hook.sh"'
 
    [[hooks.SessionEnd]]
    [[hooks.SessionEnd.hooks]]
    type = "command"
-   command = 'bash "~/.codasignal/hook.sh"'
+   command = 'bash "$HOME/.codasignal/hook.sh"'
 
    [[hooks.Notification]]
    matcher = "permission_prompt"
    [[hooks.Notification.hooks]]
    type = "command"
-   command = 'bash "~/.codasignal/hook.sh"'
+   command = 'bash "$HOME/.codasignal/hook.sh"'
    ```
 
    > TOML 单引号字符串内不处理反斜杠转义，所以命令里直接用 `"..."` 即可，无需写成 `\"`。
