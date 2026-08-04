@@ -1,133 +1,131 @@
-# 多 Agent Hook 支持设计（Codex / Claude Code 复用现有灯逻辑）
+# 多 Agent 并发支持 + 优先级灯逻辑设计
 
 - 日期：2026-08-03
 - 状态：草案（待用户评审）
 - 关联：`2026-07-30-codasignal-traffic-light-design.md`
+- 取代：初版「仅写 hook 配置、代码零改动」方案（用户改为要求真正的优先级聚合 + 多 agent 并发）
 
-## 1. 背景与目标
+## 1. 目标
 
-CodaSignal 当前通过 CodeBuddy 的 hook 系统接收事件（`~/.codebuddy/settings.json` 里配置 hook，由 Git Bash 执行 `curl` 把事件 POST 到本地 `127.0.0.1:18765/event`）。
+1. 支持 **CodeBuddy / Claude Code / Codex** 多个 agent **并发**运行，红绿灯实时反映所有会话的综合状态。
+2. 灯色按优先级聚合（用户确认的规则）：
+   - **亮红优先**：任一活跃会话处于「等待审批」(red) → 灯红。
+   - **无红则黄**：无红，但任一活跃会话「思考中/执行中」(yellow) → 灯黄。
+   - **有绿即绿**：无红无黄，但存在已跑完一轮、在等下一条的会话(green) → 灯绿（idle 不把灯降级）。
+   - **全无活跃会话** → 空闲。
+3. 统计面板（`get-stats`）列出**所有活跃会话**的明细 + 底部汇总。
+4. 点击信号灯 → 聚焦**最紧急**会话的终端（red > yellow > 最近活动）。
+5. 悬浮灯面文字只显示**最紧急会话的项目名**。
 
-用户希望红绿灯也能反映另外两款 agent 工具的状态：
+## 2. 为什么需要改代码（与初版的关键差异）
 
-- **OpenAI Codex**（Codex CLI）
-- **Claude Code**（Anthropic 官方 CLI）
+初版认为三工具共享事件名、接收端工具无关，故「零代码改动」。但那只能处理**单实例单盏灯、单会话串行**。
 
-经探索与设计澄清，结论如下：
+现在用户要**并发多 agent + 优先级聚合**，必须：
+- 按 `session_id` 区分不同会话（否则多工具事件会互相覆盖灯色）。
+- 维护「每会话状态 → 聚合灯色」的两层模型。
+- 统计/聚焦/灯面文字都要从「单个 AppState」改为「聚合 + 最紧急会话」。
 
-- 这三款工具**共享完全相同的 hook 事件名**（`SessionStart` / `UserPromptSubmit` / `PreToolUse` / `PostToolUse` / `Stop` / `SessionEnd` / `Notification`），且都通过 shell 命令的 **stdin** 传入 `{ session_id, transcript_path, cwd, hook_event_name, permission_mode }` 这一结构。
-- CodaSignal 的接收端（`src/server.js`）已做到工具无关：`const event = data.event || data.hook_event_name;`——任何工具只要把事件 POST 到同一个端口，逻辑无需改动即可工作。
-- 用户**不会同时运行三种工具**，亮灯逻辑保持现状：亮红优先，无红则黄，全绿才绿（单实例 `AppState`，单端口单盏灯）。
+因此本设计**包含 `src/state.js`、`main.js`、`renderer/*` 的代码改动**，外加仍需要的 hook 配置（让新工具把事件发过来）。
 
-因此本设计的唯一交付物是：**为 Codex 与 Claude Code 编写与 CodeBuddy 等价的 hook 配置，把它们发出的事件转发到 CodaSignal 已有的本地服务**，应用代码与 UI 零改动。
+## 3. 事件映射（复用现有 EVENT_TO_STATE）
 
-## 2. 非目标（明确不做）
+| hook 事件 | 单会话灯色 | 说明 |
+|---|---|---|
+| `permission_prompt` | 红 | 等待审批（CodeBuddy 事件名；Claude Code/Codex 用 `PreToolUse` 审批拦截） |
+| `UserPromptSubmit` | 黄(思考中) | 模型开始思考的早期信号 |
+| `PreToolUse` | 黄(执行中) | 工具调用前 |
+| `PostToolUse` | 黄(执行中) | 工具调用后 |
+| `Stop` | 绿 | 本轮完成、等下一条（仅当当前为黄/红才变绿，避免会话开始的占位 Stop 闪绿） |
+| `SessionStart` | 空闲 | 会话开始，登记一个 session |
+| `SessionEnd` | 空闲 | 会话结束，移出活跃集合 |
 
-- 不新增多任务 / 多窗口 UI。用户明确不会三工具并行，单盏灯逻辑保持不变。
-- 不在事件里加 `source` / `tool` 字段，也不做"按工具聚合成多盏灯"的优先级灯。
-- 不改动 `src/` 下任何模块（`server.js` / `state.js` / `stats.js` / `focus.js` / `config.js`）。
-- 不支持 macOS / Linux（CodaSignal 仍仅 Windows：PowerShell 聚焦、无边框窗口 DWM 处理）。
+`AppState` 里已有的 `phase`（`thinking`/`executing`）区分「思考中/执行中」逻辑继续复用，对多会话同样适用。
 
-## 3. 事件映射（复用现有逻辑）
+## 4. Hook 配置（仍需：让 Codex / Claude Code 把事件发到本服务）
 
-所有工具的事件都映射到同一套灯色（来自 `src/state.js` 的 `EVENT_TO_STATE`）：
-
-| hook 事件 | 灯色 | 标签 | 备注 |
-|---|---|---|---|
-| `permission_prompt` | 红 | 等待审批 | CodeBuddy 专属事件名；Codex/Claude Code 用 `PreToolUse` 审批拦截 |
-| `UserPromptSubmit` | 黄 | 思考中 | "思考开始" 早期信号，消除空闲→黄灯的延迟 |
-| `PreToolUse` | 黄 | 执行中 | 工具调用前 |
-| `PostToolUse` | 黄 | 执行中 | 工具调用后 |
-| `Stop` | 绿 | 已完成 | |
-| `SessionStart` | 空闲 | 空闲 | |
-| `SessionEnd` | 空闲 | 空闲 | 落盘历史统计 |
-
-> 注意：`UserPromptSubmit` → 黄（思考中），`PreToolUse`/`PostToolUse` → 黄（执行中），二者在 `AppState` 里通过 `phase` 字段区分标签，逻辑已在 `state.js` 实现，新工具自动受益。
-
-## 4. Hook 配置模板（关键）
-
-三款工具都需要在 hook 命令里做两件事：
-
-1. 把 stdin 原样读取（含 `session_id` / `transcript_path` / `cwd` / `hook_event_name` 等字段）。
-2. 由于 CodeBuddy/Claude Code 传入的 JSON 里**可能没有 `cwd` 字段**（尤其早期 `cwd=undefined` 问题），在 JSON 末尾追加 `"cwd":"$PWD"` 以补全省略的工作目录——这是之前修复 CodeBuddy 统计归零问题的关键。
-
-通用命令模板（在 Git Bash 下执行，Windows 路径用正斜杠）：
+通用命令模板（Git Bash，转发 stdin 并强制补 `cwd`，`|| true` 保护）：
 
 ```bash
 stdin=$(cat); body=$(printf '%s' "$stdin" | sed -E 's/[[:space:]]+$//; s/\}$//'); printf '%s,"cwd":"%s"}' "$body" "$PWD" | curl -s -X POST http://127.0.0.1:18765/event -d @- || true
 ```
 
-- `sed` 去掉末尾空白并把结尾的 `}` 去掉，再用 `printf` 拼上 `,"cwd":"$PWD"}` 形成合法 JSON。
-- `|| true` 保证 CodaSignal 未启动 / 网络异常时**不中断 agent 流程**。
-- 端口 `18765` 来自 `src/config.js` 的 `CODASIGNAL_PORT`（默认 `18765`）。
+- 模板必须原样转发 stdin 里的 `session_id` / `transcript_path` / `hook_event_name`，这是**多会话区分的关键字段**。
+- 端口 `18765` 来自 `src/config.js` 的 `CODASIGNAL_PORT`。
+- 各工具配置位置：
+  - CodeBuddy：`~/.codebuddy/settings.json`（已存在，基线）
+  - Claude Code：`~/.claude/settings.json`（结构同 CodeBuddy，合并保留已有项）
+  - Codex：`~/.codex/hooks.json`（位置以 `codex` 文档为准；事件名一致）
+- 需接入的事件：`SessionStart` / `UserPromptSubmit` / `PreToolUse` / `PostToolUse` / `Stop` / `SessionEnd`。
 
-## 5. 各工具配置位置与写法
+## 5. 核心设计：按会话追踪 + 聚合
 
-### 5.1 CodeBuddy（已存在，记录基线）
+### 5.1 `src/state.js` 改造
 
-配置文件：`~/.codebuddy/settings.json`
+- 新增 `SessionState` 类（单会话），字段同现有 `AppState` 实例字段：`state` / `phase` / `cwd` / `sessionId` / `transcriptPath` / `startTs` / `endTs` / `lastUpdate`。其 `applyEvent` 逻辑复用现有 `AppState.applyEvent` 的单会话规则（含 Stop 的占位保护、phase 区分）。
+- 新增 `StateManager` 类（聚合），持有 `sessions: Map<sessionId, SessionState>`：
+  - `applyEvent(event, data)`：
+    - 取 `sid = data.session_id || data.sessionId || (data.cwd ? 'cwd:'+data.cwd : 'default')`（session_id 缺失时的兜底 key，保证单工具仍可分会话；同工具并发缺 id 会合并，属已知边界）。
+    - `SessionStart`：无则新建 `SessionState` 并登记；写入 cwd/sessionId/transcriptPath/startTs。
+    - `SessionEnd`：标记该会话结束（从活跃集合移除或置 `ended=true`）。
+    - 其它事件：取/建对应 `SessionState` 并调用其 `applyEvent`。
+    - 返回 `sid`（供 `main.js` 做按会话落盘）。
+  - `PRIORITY = { red:3, yellow:2, green:1, idle:0 }`。
+  - `aggregateState()`：`max(PRIORITY[s.state])` 遍历**活跃**会话；结果即聚合灯色（自然满足「红>黄>绿>空闲」「有绿即绿」）。
+  - `activeSessions()`：未结束的会话列表（`SessionEnd` 后标记为 ended 并从活跃集合排除）。
+  - `getSession(sid)`：按 id 取 `SessionState`（落盘时回查用）。
+  - `mostUrgent()`：按 `PRIORITY` 取最紧急会话，平手取 `lastUpdate` 最新者；返回其 cwd / project / sessionId 供聚焦与灯面文字。
+  - `snapshot()`：返回 `{ state: aggregate, label, count: activeSessions().length, project: mostUrgent().project, cwd: mostUrgent().cwd, sessions: [...] }`。`label` 沿用现有 `STATE_LABELS` + phase 规则（按聚合态 + 最紧急会话的 phase 决定「思考中/执行中」）。
+- 保留 `projectNameFromCwd` 导出（不变）。
+- 向后兼容：单 CodeBuddy 会话时，`sessions` 只有一项，聚合 = 该项，行为与原 `AppState` 完全一致。
 
-```json
-{
-  "hooks": {
-    "SessionStart": [
-      { "hooks": [ { "type": "command", "command": "<上面的通用模板>" } ] }
-    ],
-    "UserPromptSubmit": [
-      { "hooks": [ { "type": "command", "command": "<上面的通用模板>" } ] }
-    ],
-    "PreToolUse": [
-      { "hooks": [ { "type": "command", "command": "<上面的通用模板>" } ] }
-    ],
-    "PostToolUse": [
-      { "hooks": [ { "type": "command", "command": "<上面的通用模板>" } ] }
-    ],
-    "Stop": [
-      { "hooks": [ { "type": "command", "command": "<上面的通用模板>" } ] }
-    ],
-    "SessionEnd": [
-      { "hooks": [ { "type": "command", "command": "<上面的通用模板>" } ] }
-    ]
-  }
-}
-```
+### 5.2 `main.js` 改造
 
-### 5.2 Claude Code
+- `const appState = new StateManager();`（变量名沿用，减少改动面）。
+- `sendState()`：`appState.snapshot()` 已返回聚合态，托盘图标 `makeIcon(appState.state)` 改为 `appState.snapshot().state`；悬浮窗推送同一 snapshot（含 `project`/`count`）。
+- 统计 `get-stats` handler：改为返回**所有活跃会话**的明细数组 `current: activeSessions().map(s => ({ sessionId, project, cwd, state, tokens: computeSessionTokens(s), cost, startTs, endTs }))`，再加 `totals: stored.totals` 与 `sessions: stored.sessions`（历史）、`prices`。`computeCurrentTokens` 改为 `computeSessionTokens(session)` 按单会话 `transcriptPath`/cwd 计算。
+- 落盘：server 回调里 `const sid = appState.applyEvent(...)`；当 `event==='Stop'||'SessionEnd'` 且 `appState.getSession(sid)` 有 `startTs`，对该会话 `upsertSession(buildRecord({...该会话字段...}, prices))`。`src/stats.js` 的 `upsertSession` 已按 `cwd+startTs` 去重，多会话天然隔离，无需改。
+- 点击聚焦：`ipcMain.on('focus-terminal', () => focusTerminal(appState.mostUrgentCwd?.() || appState.mostUrgent()?.cwd))`。
+- hover 速览：显示最紧急会话的速览（沿用现有 `getStats` 取最紧急即可）。
 
-配置文件：`~/.claude/settings.json`（结构同 CodeBuddy）
+### 5.3 渲染层 `renderer/*` 改造
 
-需新增/合并的 hook 事件：`SessionStart`、`UserPromptSubmit`、`PreToolUse`、`PostToolUse`、`Stop`、`SessionEnd`，命令均用第 4 节的通用模板。合并时保留文件里已有的其它配置项（不要整体覆盖）。
+- `index.html` + `renderer.js`：灯面文字改用 `snapshot.project`（最紧急项目名）；`count>1` 时可显示一个小的「×N」角标（可选，默认仅项目名，符合用户选择）。灯色仍按 `snapshot.state`。
+- `stats.html` + `stats.js`：`get-stats` 现在返回 `current` 数组；渲染**每个活跃会话一行**（项目名 + state + tokens + 费用），底部展示 `totals` 汇总与历史 `sessions`。
+- `hover.html` + `hover.js`：显示最紧急会话的速览；结构基本不变。
+- `preload.js`：无需新增 IPC 通道；`state-update` 与 `get-stats` 的载荷结构变化由渲染层适配。
 
-### 5.3 OpenAI Codex
+## 6. 测试
 
-Codex CLI 的 hook 配置通常为 `hooks.json`，预期位置 `~/.codex/hooks.json`（如实际位置不同，以 `codex` 文档为准）。事件名与上面一致。命令同样用第 4 节通用模板。
-
-> 注意：Codex 的事件结构与字段名需以实际运行验证为准（见第 7 节风险）。若 Codex 不发出 `UserPromptSubmit`，则"思考中"早期信号对 Codex 缺失，灯会在 `PreToolUse` 才变黄——属已知可接受差异。
-
-## 6. 写入本机配置的步骤（实现阶段）
-
-1. 读取各工具的现有配置文件（如不存在则新建）。
-2. 把第 4 节通用模板填入每个需要的事件数组（命令字符串里的双引号需用 JSON 转义为 `\"`）。
-3. 校验生成的 JSON 合法（`node -e "JSON.parse(require('fs').readFileSync(path,'utf8'))"`）。
-4. 重启对应 agent 工具使配置生效。
-5. 触发一次会话，观察 CodaSignal 灯色变化与 `stats.js` 能读到 `transcript_path`。
-6. 更新仓库内的 `hooks/setup-hooks.md`：在现有 CodeBuddy 章节之外，新增「Claude Code」与「OpenAI Codex」两节，给出各自配置文件路径与第 4 节通用模板，并说明合并而非覆盖现有配置。
+- `tests/state.test.js`：将 `AppState` 单测迁移/扩展为 `StateManager`：
+  - 单会话行为与原 `AppState` 一致（回归）。
+  - 多会话聚合：A 红 + B 绿 → 红；A 黄 + B 绿 → 黄；A 绿 + B idle → 绿；无会话 → 空闲。
+  - `mostUrgent` 选择正确（红>黄>最近）。
+- （已知 `tests/focus.test.js` 仍过时，与本任务无关，不处理。）
 
 ## 7. 风险与缓解
 
 | 风险 | 缓解 |
 |---|---|
-| Git Bash shell 兼容：模板依赖 `sed` / `$PWD` / 命令替换，需用户机器装了 Git Bash 且在 PATH | 模板与 CodeBuddy 现有 hook 同源，已验证可用 |
-| `transcript_path` 在 Codex 中字段名/可用性不同 | 实现后用 `[DBG]` 日志验证；不可读则降级为 cwd 目录最新 jsonl（现有 `findTranscript` 逻辑） |
-| `cwd` 缺失 | 模板强制追加 `"cwd":"$PWD"` |
-| 三工具配置结构不同（settings.json vs hooks.json） | 逐工具核对实际文件结构后再写 |
-| 多个 agent 同时运行抢同一盏灯 | 用户明确不并行；单实例单端口不变 |
-| 配置写错导致 agent 启动失败 | 每次写入后 JSON 校验 + `|| true` 保护 |
+| `session_id` 缺失/重复导致会话合并 | 兜底 key（cwd:/default）；已知边界，三工具均文档声明会带 session_id |
+| Codex 不发出 `UserPromptSubmit` | 灯在 `PreToolUse` 才变黄，属可接受差异（同初版） |
+| `transcript_path` 字段名在 Codex 不同 | `[DBG]` 日志验证；不可读降级为 cwd 目录最新 jsonl（`findTranscript`） |
+| 聚合后 `get-stats` 渲染改动面较大 | 保持 IPC 通道不变，仅改载荷结构 + 渲染 |
+| 多会话并发导致落盘/统计错乱 | `upsertSession` 按 `cwd+startTs` 隔离；按 sid 逐会话落盘 |
 
 ## 8. 验证标准
 
-- 在 Claude Code / Codex 各发起一次会话：CodaSignal 灯色应按第 3 节映射变化（黄→绿/空闲）。
-- `UserPromptSubmit` 出现时（Claude Code）灯应尽早变黄（思考中）。
-- `get-stats` 能拿到非空 `transcriptPath` 与非零 tokens（取决于该会话是否产生 usage）。
-- CodaSignal 未启动时，agent 流程不受影响（`|| true` 兜底）。
-- 应用代码与 UI 无改动。`~/.claude/settings.json`、`~/.codex/hooks.json` 等机器配置在仓库之外，不进 git；仓库内 `git diff --stat` 仅含文档改动（本 spec 与 `hooks/setup-hooks.md`）。
+- 同时开 CodeBuddy + Claude Code + Codex 各一个会话：灯色随优先级规则变化（任一红→红；无红有黄→黄；都清闲→绿）。
+- 单工具使用行为与原版完全一致（回归）。
+- 统计面板列出所有活跃会话明细 + 汇总。
+- 点击灯聚焦到最紧急会话的终端（`focusTerminal` 收到正确 cwd）。
+- 灯面文字显示最紧急项目名。
+
+## 9. 实现步骤（概览，详细见 writing-plans）
+
+1. 改 `src/state.js`：`SessionState` + `StateManager` + 聚合/最紧急逻辑 + 导出。
+2. 改 `main.js`：实例化 `StateManager`、聚合 snapshot、多会话 stats、按会话落盘、聚焦最紧急。
+3. 改 `renderer/*`：灯面文字用最紧急项目名；stats 列表渲染；hover 适配。
+4. 更新 `tests/state.test.js` 覆盖聚合 + 最紧急。
+5. 更新 `hooks/setup-hooks.md`：新增 Claude Code / Codex 章节（含 session_id 转发提醒）。
+6. 本地起应用，用多工具/多会话验证；必要时加 `[DBG]` 日志排查。
