@@ -112,7 +112,8 @@ test('StateManager: aggregate red-first across sessions', () => {
 });
 test('StateManager: green if no red/yellow (有绿即绿)', () => {
   const m = new StateManager();
-  m.applyEvent('Stop', { session_id: 'A' });         // A 绿
+  m.applyEvent('PreToolUse', { session_id: 'A' });   // A 黄
+  m.applyEvent('Stop', { session_id: 'A' });         // A 绿（先工作再结束）
   m.applyEvent('SessionStart', { session_id: 'B' }); // B idle
   assert.equal(m.aggregateState(), 'green');
 });
@@ -306,7 +307,7 @@ module.exports = {
 - [ ] **Step 4: 运行测试确认通过**
 
 Run: `node --test tests/state.test.js`
-Expected: 全部 PASS（16 个 test）。
+Expected: 全部 PASS（13 个 test）。
 
 - [ ] **Step 5: 提交**
 
