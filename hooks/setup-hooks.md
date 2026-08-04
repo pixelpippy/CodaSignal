@@ -43,35 +43,37 @@ stdin=$(cat); body=$(printf '%s' "$stdin" | sed -E 's/[[:space:]]+$//; s/\}$//')
 
 ## CodeBuddy
 
-把下面整段加进你的 `~/.codebuddy/settings.json`（或合并进已有的 `hooks` 字段）：
+把下面整段加进你的 `~/.codebuddy/settings.json`（或合并进已有的 `hooks` 字段）。命令统一调上方「共享脚本」（推荐），与 Claude Code / Codex 保持一致，也避免 JSON 里的引号转义问题：
 
 ```json
 {
   "hooks": {
     "Notification": [
-      { "matcher": "permission_prompt", "hooks": [ { "type": "command", "command": "stdin=$(cat); body=$(printf '%s' \"$stdin\" | sed -E 's/[[:space:]]+$//; s/\\}$//'); printf '%s,\"cwd\":\"%s\"}' \"$body\" \"$PWD\" | curl -s -X POST http://127.0.0.1:18765/event -d @- || true" } ] }
+      { "matcher": "permission_prompt", "hooks": [ { "type": "command", "command": "bash \"~/.codasignal/hook.sh\"" } ] }
     ],
     "PreToolUse": [
-      { "hooks": [ { "type": "command", "command": "stdin=$(cat); body=$(printf '%s' \"$stdin\" | sed -E 's/[[:space:]]+$//; s/\\}$//'); printf '%s,\"cwd\":\"%s\"}' \"$body\" \"$PWD\" | curl -s -X POST http://127.0.0.1:18765/event -d @- || true" } ] }
+      { "hooks": [ { "type": "command", "command": "bash \"~/.codasignal/hook.sh\"" } ] }
     ],
     "PostToolUse": [
-      { "hooks": [ { "type": "command", "command": "stdin=$(cat); body=$(printf '%s' \"$stdin\" | sed -E 's/[[:space:]]+$//; s/\\}$//'); printf '%s,\"cwd\":\"%s\"}' \"$body\" \"$PWD\" | curl -s -X POST http://127.0.0.1:18765/event -d @- || true" } ] }
+      { "hooks": [ { "type": "command", "command": "bash \"~/.codasignal/hook.sh\"" } ] }
     ],
     "UserPromptSubmit": [
-      { "hooks": [ { "type": "command", "command": "stdin=$(cat); body=$(printf '%s' \"$stdin\" | sed -E 's/[[:space:]]+$//; s/\\}$//'); printf '%s,\"cwd\":\"%s\"}' \"$body\" \"$PWD\" | curl -s -X POST http://127.0.0.1:18765/event -d @- || true" } ] }
+      { "hooks": [ { "type": "command", "command": "bash \"~/.codasignal/hook.sh\"" } ] }
     ],
     "Stop": [
-      { "hooks": [ { "type": "command", "command": "stdin=$(cat); body=$(printf '%s' \"$stdin\" | sed -E 's/[[:space:]]+$//; s/\\}$//'); printf '%s,\"cwd\":\"%s\"}' \"$body\" \"$PWD\" | curl -s -X POST http://127.0.0.1:18765/event -d @- || true" } ] }
+      { "hooks": [ { "type": "command", "command": "bash \"~/.codasignal/hook.sh\"" } ] }
     ],
     "SessionStart": [
-      { "hooks": [ { "type": "command", "command": "stdin=$(cat); body=$(printf '%s' \"$stdin\" | sed -E 's/[[:space:]]+$//; s/\\}$//'); printf '%s,\"cwd\":\"%s\"}' \"$body\" \"$PWD\" | curl -s -X POST http://127.0.0.1:18765/event -d @- || true" } ] }
+      { "hooks": [ { "type": "command", "command": "bash \"~/.codasignal/hook.sh\"" } ] }
     ],
     "SessionEnd": [
-      { "hooks": [ { "type": "command", "command": "stdin=$(cat); body=$(printf '%s' \"$stdin\" | sed -E 's/[[:space:]]+$//; s/\\}$//'); printf '%s,\"cwd\":\"%s\"}' \"$body\" \"$PWD\" | curl -s -X POST http://127.0.0.1:18765/event -d @- || true" } ] }
+      { "hooks": [ { "type": "command", "command": "bash \"~/.codasignal/hook.sh\"" } ] }
     ]
   }
 }
 ```
+
+> 共享脚本会自动把 CodeBuddy 写到 stdin 的 JSON（`session_id` / `transcript_path` / `hook_event_name`）原样转发并注入 `cwd`。**切勿改成只发字面量 `{"event":"..."}` 的写法**——那样缺 `session_id`，并发会话会被算成「幽灵会话」，灯不变绿、不回空闲，`stats.json` 也不再记录。
 
 ## 说明
 
