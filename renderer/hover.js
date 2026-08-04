@@ -16,10 +16,10 @@ function fmtDur(ms) {
 }
 function render(data) {
   if (!data) return;
-  const cur = data.current;
+  const cur = (data.current && data.current[0]) || null; // 最紧急会话
   document.getElementById('cur').textContent = cur ? `${fmtTokens(cur.tokens)} · ${fmtDur(cur.durationMs)}` : '无';
   document.getElementById('cost').textContent = fmtMoney(data.totals && data.totals.cost);
-  document.getElementById('sessions').textContent = (data.sessions ? data.sessions.length : 0).toString();
+  document.getElementById('sessions').textContent = (data.current ? data.current.length : 0).toString();
   const t = data.totals && data.totals.tokens;
   document.getElementById('tokens').textContent = fmtTokens(t);
 }
