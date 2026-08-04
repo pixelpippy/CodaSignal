@@ -18,6 +18,29 @@ stdin=$(cat); body=$(printf '%s' "$stdin" | sed -E 's/[[:space:]]+$//; s/\}$//')
 
 写进 JSON 配置时，命令里的双引号要转义成 `\"`，反斜杠要写成 `\\`（下方配置块已经是转义好的成品，可直接复制）。
 
+## 共享脚本（推荐）
+
+上面的「通用模板」是单条 bash 命令。把它放进一个脚本文件、让所有工具的 hook 都调用该脚本，可避免 JSON / TOML 里的引号转义问题，也方便统一维护（端口、字段映射只改一处）。
+
+- 脚本：`~/.codasignal/hook.sh`
+
+  ```bash
+  #!/usr/bin/env bash
+  PORT="${CODASIGNAL_PORT:-18765}"
+  stdin=$(cat)
+  body=$(printf '%s' "$stdin" | sed -E 's/[[:space:]]+$//; s/\}$//')
+  printf '%s,"cwd":"%s"}' "$body" "$PWD" \
+    | curl -s -X POST "http://127.0.0.1:${PORT}/event" -d @- || true
+  ```
+
+- 各工具的 hook 命令统一写成（注意是 POSIX shell 语法，本机 hook 由 Git Bash 执行）：
+
+  ```bash
+  bash "~/.codasignal/hook.sh"
+  ```
+
+若 `bash` 不在 hook 的 PATH 上，写成绝对路径，例如 `C:/Program Files/Git/usr/bin/bash.exe "~/.codasignal/hook.sh"`。下方的 Claude Code / Codex 章节示例均使用此共享脚本。
+
 ## CodeBuddy
 
 把下面整段加进你的 `~/.codebuddy/settings.json`（或合并进已有的 `hooks` 字段）：
@@ -71,12 +94,93 @@ stdin=$(cat); body=$(printf '%s' "$stdin" | sed -E 's/[[:space:]]+$//; s/\}$//')
 
 ## Claude Code
 
-配置文件：`~/.claude/settings.json`（结构同 CodeBuddy 的 `hooks` 块）。对以下事件各加一个 command hook，命令均用上方「通用模板」：
+配置文件：`~/.claude/settings.json`（与 CodeBuddy 同结构的 `hooks` 块）。**合并时务必保留文件已有的其它配置项（如 `env`、既有 hook），勿整体覆盖。**
+
+对以下事件各加一个 command hook，命令用上方「共享脚本」（推荐）或「通用模板」：
 
 - `SessionStart`、`UserPromptSubmit`、`PreToolUse`、`PostToolUse`、`Stop`、`SessionEnd`
+- `Notification`（matcher `permission_prompt`）—— 亮红灯（等待审批）
 
-注意：Claude Code 会在 stdin 的 JSON 中给出 `session_id` / `transcript_path` / `cwd` / `hook_event_name`，**务必原样转发**（模板已处理），CodaSignal 靠 `session_id` 区分并发会话。合并时保留文件已有其它配置项，勿整体覆盖。JSON 内双引号需转义为 `\"`。
+示例（仅展示 CodaSignal 部分，请并入你现有的 `hooks`）：
+
+```json
+{
+  "hooks": {
+    "PreToolUse": [
+      { "hooks": [ { "command": "bash \"~/.codasignal/hook.sh\"", "type": "command" } ] }
+    ],
+    "PostToolUse": [
+      { "hooks": [ { "command": "bash \"~/.codasignal/hook.sh\"", "type": "command" } ] }
+    ],
+    "UserPromptSubmit": [
+      { "hooks": [ { "command": "bash \"~/.codasignal/hook.sh\"", "type": "command" } ] }
+    ],
+    "SessionStart": [
+      { "hooks": [ { "command": "bash \"~/.codasignal/hook.sh\"", "type": "command" } ] }
+    ],
+    "Stop": [
+      { "hooks": [ { "command": "bash \"~/.codasignal/hook.sh\"", "type": "command" } ] }
+    ],
+    "SessionEnd": [
+      { "hooks": [ { "command": "bash \"~/.codasignal/hook.sh\"", "type": "command" } ] }
+    ],
+    "Notification": [
+      { "matcher": "permission_prompt", "hooks": [ { "command": "bash \"~/.codasignal/hook.sh\"", "type": "command" } ] }
+    ]
+  }
+}
+```
+
+> 若你已有 `PreToolUse`（例如 `rtk hook claude`），**追加**一个新条目即可，不要替换原有条目——Claude Code 允许同一事件挂多个 hook，每个 hook 都会收到完整的 stdin。
+
+Claude Code 会在 stdin 的 JSON 中给出 `session_id` / `transcript_path` / `cwd` / `hook_event_name`，**务必原样转发**（共享脚本已处理），CodaSignal 靠 `session_id` 区分并发会话。JSON 内双引号需转义为 `\"`。
 
 ## OpenAI Codex
 
-Codex CLI 的 hook 配置通常为 `hooks.json`，预期位置 `~/.codex/hooks.json`（以 `codex` 文档为准；事件名与上面一致）。命令同样用「通用模板」。**若 Codex 不发出 `UserPromptSubmit`，灯会在 `PreToolUse` 才变黄**，属已知可接受差异。
+Codex CLI 的 hook 有两种等效写法，二选一（同一层不要混用，否则 Codex 会告警）：
+
+1. **内联进 `~/.codex/config.toml`**（推荐，已用 `codex doctor` 验证 `config.toml parse ok`）：用 `[[hooks.<Event>]]` + `[[hooks.<Event>.hooks]]` 数组表，命令调共享脚本。
+
+   ```toml
+   [[hooks.SessionStart]]
+   [[hooks.SessionStart.hooks]]
+   type = "command"
+   command = 'bash "~/.codasignal/hook.sh"'
+
+   [[hooks.UserPromptSubmit]]
+   [[hooks.UserPromptSubmit.hooks]]
+   type = "command"
+   command = 'bash "~/.codasignal/hook.sh"'
+
+   [[hooks.PreToolUse]]
+   [[hooks.PreToolUse.hooks]]
+   type = "command"
+   command = 'bash "~/.codasignal/hook.sh"'
+
+   [[hooks.PostToolUse]]
+   [[hooks.PostToolUse.hooks]]
+   type = "command"
+   command = 'bash "~/.codasignal/hook.sh"'
+
+   [[hooks.Stop]]
+   [[hooks.Stop.hooks]]
+   type = "command"
+   command = 'bash "~/.codasignal/hook.sh"'
+
+   [[hooks.SessionEnd]]
+   [[hooks.SessionEnd.hooks]]
+   type = "command"
+   command = 'bash "~/.codasignal/hook.sh"'
+
+   [[hooks.Notification]]
+   matcher = "permission_prompt"
+   [[hooks.Notification.hooks]]
+   type = "command"
+   command = 'bash "~/.codasignal/hook.sh"'
+   ```
+
+   > TOML 单引号字符串内不处理反斜杠转义，所以命令里直接用 `"..."` 即可，无需写成 `\"`。
+
+2. **独立 `~/.codex/hooks.json`**（结构与上方 Claude Code 的 `hooks` 块一致）：若偏好 JSON 可放这里。
+
+可用 `codex doctor` 验证解析结果。**若 Codex 不发出 `UserPromptSubmit`（或 `Stop` / `SessionEnd`），对应灯会晚一步亮起，属已知可接受差异。**
