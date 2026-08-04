@@ -194,3 +194,5 @@ Codex CLI 的 hook 有两种等效写法，二选一（同一层不要混用，�
 2. **独立 `~/.codex/hooks.json`**（结构与上方 Claude Code 的 `hooks` 块一致）：若偏好 JSON 可放这里。
 
 可用 `codex doctor` 验证解析结果。**若 Codex 不发出 `UserPromptSubmit`（或 `Stop` / `SessionEnd`），对应灯会晚一步亮起，属已知可接受差异。**
+
+> **首次运行需信任每个事件的 hook**：Codex 对每个事件的 hook 单独做信任校验，**未信任的事件会被拒绝执行并报 `exited with code 1`**（现象常是 `SessionStart hook (failed)` / `UserPromptSubmit hook (failed)`）。首次启动 Codex 时，对弹出的 CodaSignal hook 信任提示逐一「信任 / 批准」即可——各事件在**首次触发时**才弹：`SessionStart`（启动会话）、`UserPromptSubmit`（首次发消息）、`Stop` / `SessionEnd` / `Notification`（各自首次触发时）。信任记录写入 `config.toml` 的 `[hooks.state]`，之后不再提示。若处于自动化 / 非交互场景，可用 `codex --dangerously-bypass-hook-trust` 跳过本次校验（仅单次生效，不持久）。
