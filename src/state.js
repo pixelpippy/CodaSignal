@@ -8,24 +8,25 @@ const EVENT_TO_STATE = {
   SessionStart: 'idle',
   SessionEnd: 'idle',
 };
-
 const STATE_LABELS = {
-  idle: '空闲',
-  red: '等待审批',
-  yellow: '思考中',
-  green: '已完成',
+  idle: '空闲', red: '等待审批', yellow: '思考中', green: '已完成',
 };
-
 function stateForEvent(event) {
   return Object.prototype.hasOwnProperty.call(EVENT_TO_STATE, event) ? EVENT_TO_STATE[event] : null;
 }
+function projectNameFromCwd(cwd) {
+  const parts = String(cwd).replace(/[\\/]+$/, '').split(/[\\/]/);
+  return parts[parts.length - 1] || '';
+}
 
-class AppState {
-  constructor() {
+const PRIORITY = { red: 3, yellow: 2, green: 1, idle: 0 };
+
+class SessionState {
+  constructor(sessionId) {
+    this.sessionId = sessionId;
     this.state = 'idle';
     this.phase = null;
     this.cwd = undefined;
-    this.sessionId = undefined;
     this.transcriptPath = undefined;
     this.startTs = undefined;
     this.endTs = undefined;
@@ -34,8 +35,8 @@ class AppState {
   applyEvent(event, extra = {}) {
     if (event === 'Stop') {
       // 仅当正在“执行中/等待审批”时，Stop 才表示本回合结束（变绿=已完成）。
-      // 若当前是空闲/已完成，说明这是会话开始时的占位 Stop（见日志：Stop 在
-      // SessionStart 之前发出），忽略之，否则会在一上来先闪一下绿灯。
+      // 若当前是空闲/已完成，说明这是会话开始时的占位 Stop，忽略之，
+      // 否则会在一上来先闪一下绿灯。
       if (this.state === 'yellow' || this.state === 'red') {
         this.state = 'green';
         this.phase = null;
@@ -44,7 +45,7 @@ class AppState {
       const s = stateForEvent(event);
       if (s) {
         this.state = s;
-        // 黄灯区分“思考中”与“执行中”：UserPromptSubmit 是你刚发消息、模型开始思考；
+        // 黄灯区分“思考中”与“执行中”：UserPromptSubmit 是刚发消息、模型开始思考；
         // PreToolUse/PostToolUse 是模型真正在调用工具。其它状态不保留 phase。
         if (s === 'yellow') {
           this.phase = event === 'UserPromptSubmit' ? 'thinking' : 'executing';
@@ -67,7 +68,7 @@ class AppState {
     this.lastUpdate = Date.now();
     return this;
   }
-  snapshot(projectName) {
+  snapshot() {
     // 黄灯文字随阶段切换：思考中（刚发消息、模型推理） / 执行中（正在调用工具）
     const label = this.state === 'yellow' && this.phase === 'executing'
       ? '执行中'
@@ -76,16 +77,72 @@ class AppState {
       state: this.state,
       label,
       cwd: this.cwd,
-      project: projectName || (this.cwd ? projectNameFromCwd(this.cwd) : ''),
+      project: this.cwd ? projectNameFromCwd(this.cwd) : '',
       startTs: this.startTs,
       endTs: this.endTs,
     };
   }
 }
 
-function projectNameFromCwd(cwd) {
-  const parts = String(cwd).replace(/[\\/]+$/, '').split(/[\\/]/);
-  return parts[parts.length - 1] || '';
+class StateManager {
+  constructor() {
+    this.sessions = new Map(); // sessionId -> SessionState
+  }
+  _sid(data = {}) {
+    return data.session_id || data.sessionId || (data.cwd ? 'cwd:' + data.cwd : 'default');
+  }
+  getSession(sid) { return this.sessions.get(sid); }
+  activeSessions() {
+    return Array.from(this.sessions.values()).filter((s) => s.state !== 'ended');
+  }
+  applyEvent(event, data = {}) {
+    const sid = this._sid(data);
+    let s = this.sessions.get(sid);
+    if (!s) { s = new SessionState(sid); this.sessions.set(sid, s); }
+    if (event === 'SessionEnd') {
+      s.state = 'ended';
+      s.endTs = Date.now();
+      s.lastUpdate = Date.now();
+      return sid;
+    }
+    s.applyEvent(event, data);
+    return sid;
+  }
+  aggregateState() {
+    let best = 'idle';
+    for (const s of this.activeSessions()) {
+      if (PRIORITY[s.state] > PRIORITY[best]) best = s.state;
+    }
+    return best;
+  }
+  mostUrgent() {
+    const list = this.activeSessions();
+    if (!list.length) return null;
+    list.sort((a, b) => {
+      const pa = PRIORITY[a.state], pb = PRIORITY[b.state];
+      if (pb !== pa) return pb - pa;
+      return (b.lastUpdate || 0) - (a.lastUpdate || 0);
+    });
+    return list[0];
+  }
+  snapshot() {
+    const agg = this.aggregateState();
+    const urgent = this.mostUrgent();
+    const label = agg === 'yellow'
+      ? (urgent && urgent.phase === 'executing' ? '执行中' : '思考中')
+      : (STATE_LABELS[agg] || agg);
+    return {
+      state: agg,
+      label,
+      count: this.activeSessions().length,
+      project: urgent ? urgent.snapshot().project : '',
+      cwd: urgent ? urgent.cwd : undefined,
+      sessions: this.activeSessions().map((s) => s.snapshot()),
+    };
+  }
 }
 
-module.exports = { EVENT_TO_STATE, STATE_LABELS, stateForEvent, AppState, projectNameFromCwd };
+module.exports = {
+  EVENT_TO_STATE, STATE_LABELS, stateForEvent, projectNameFromCwd,
+  SessionState, StateManager, PRIORITY,
+};
