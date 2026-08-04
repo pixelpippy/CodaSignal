@@ -57,7 +57,7 @@ function makeIcon(state) {
   return nativeImage.createFromDataURL(`data:image/png;base64,${makeDotPng(rgb).toString('base64')}`);
 }
 
-const { AppState, projectNameFromCwd } = require('./src/state.js');
+const { StateManager, projectNameFromCwd } = require('./src/state.js');
 const { startServer } = require('./src/server.js');
 const { focusTerminal } = require('./src/focus.js');
 const {
@@ -68,11 +68,12 @@ const { defaultPort } = require('./src/config.js');
 let lightWin = null;
 let statsWin = null;
 let tray = null;
-const appState = new AppState();
+const appState = new StateManager();
 
 function sendState() {
-  if (lightWin) lightWin.webContents.send('state-update', appState.snapshot());
-  if (tray) tray.setImage(makeIcon(appState.state));
+  const snap = appState.snapshot();
+  if (lightWin) lightWin.webContents.send('state-update', snap);
+  if (tray) tray.setImage(makeIcon(snap.state));
 }
 
 function createLightWindow() {
@@ -104,21 +105,21 @@ function showLightWindow() {
   lightWin.focus();
 }
 
-function computeCurrentTokens() {
+function computeSessionTokens(session) {
   // 优先用 SessionStart 直接给的 transcript_path（精确、无需 slug 猜测、避开大小写坑）
-  if (appState.transcriptPath && fs.existsSync(appState.transcriptPath)) {
-    return sumUsage(appState.transcriptPath);
+  if (session.transcriptPath && fs.existsSync(session.transcriptPath)) {
+    return sumUsage(session.transcriptPath);
   }
-  if (!appState.cwd) return null;
-  const tp = findTranscript(appState.cwd);
+  if (!session.cwd) return null;
+  const tp = findTranscript(session.cwd);
   if (!tp) return null;
   return sumUsage(tp);
 }
 
-function currentDurationMs() {
-  if (!appState.startTs) return 0;
-  const end = appState.endTs || Date.now();
-  return Math.max(0, end - appState.startTs);
+function currentDurationMs(session) {
+  if (!session.startTs) return 0;
+  const end = session.endTs || Date.now();
+  return Math.max(0, end - session.startTs);
 }
 
 function openStatsWindow() {
@@ -132,7 +133,7 @@ function openStatsWindow() {
 }
 
 function buildTray() {
-  tray = new Tray(makeIcon(appState.state));
+  tray = new Tray(makeIcon(appState.snapshot().state));
   const menu = Menu.buildFromTemplate([
     { label: '显示悬浮窗', click: () => showLightWindow() },
     { label: '统计面板', click: () => openStatsWindow() },
@@ -143,7 +144,10 @@ function buildTray() {
   tray.on('click', () => showLightWindow());
 }
 
-ipcMain.on('focus-terminal', () => focusTerminal(appState.cwd));
+ipcMain.on('focus-terminal', () => {
+  const u = appState.mostUrgent();
+  focusTerminal(u && u.cwd);
+});
 ipcMain.on('minimize-light', () => { if (lightWin) lightWin.minimize(); });
 let hoverWin = null;
 function createHoverWindow() {
@@ -181,19 +185,26 @@ ipcMain.on('hover-enter', () => cancelHoverHide());
 ipcMain.on('hover-leave', () => hideHoverStats());
 ipcMain.handle('get-stats', () => {
   const prices = loadPrices();
-  const tokens = computeCurrentTokens();
-  const current = tokens
-    ? {
-        cwd: appState.cwd,
-        project: projectNameFromCwd(appState.cwd),
-        startTs: appState.startTs,
-        endTs: appState.endTs,
-        durationMs: currentDurationMs(),
+  const stored = loadStats();
+  // current 为“活跃会话数组”，按灯色优先级降序（最紧急在前），供多会话统计面板逐条展示
+  const ORDER = { red: 3, yellow: 2, green: 1, idle: 0 };
+  const current = appState.activeSessions()
+    .map((s) => {
+      const tokens = computeSessionTokens(s)
+        || { input: 0, output: 0, cacheCreation: 0, cacheRead: 0, total: 0 };
+      return {
+        sessionId: s.sessionId,
+        project: s.cwd ? projectNameFromCwd(s.cwd) : '',
+        cwd: s.cwd,
+        state: s.state,
         tokens,
         cost: estimateCost(tokens, prices),
-      }
-    : null;
-  const stored = loadStats();
+        startTs: s.startTs,
+        endTs: s.endTs,
+        durationMs: currentDurationMs(s),
+      };
+    })
+    .sort((a, b) => (ORDER[b.state] || 0) - (ORDER[a.state] || 0));
   return { current, totals: stored.totals, sessions: stored.sessions, prices };
 });
 
@@ -201,17 +212,22 @@ app.whenReady().then(async () => {
   createLightWindow();
   buildTray();
   const server = await startServer(defaultPort(), (event, data) => {
-    appState.applyEvent(event, data || {});
+    const sid = appState.applyEvent(event, data || {});
     // 每轮结束(Stop)与整段会话结束(SessionEnd)都 upsert 一条记录（按 cwd+startTs 去重更新），
-    // 这样中途即可看到累计，不再只等 SessionEnd 才落盘。
-    if ((event === 'Stop' || event === 'SessionEnd') && appState.startTs) {
-      const prices = loadPrices();
-      const tk = computeCurrentTokens() || { input: 0, output: 0, cacheCreation: 0, cacheRead: 0, total: 0 };
-      upsertSession(buildRecord({
-        sessionId: appState.sessionId, cwd: appState.cwd,
-        project: projectNameFromCwd(appState.cwd),
-        startTs: appState.startTs, endTs: appState.endTs, tokens: tk,
-      }, prices));
+    // 这样中途即可看到累计，不再只等 SessionEnd 才落盘。落盘只针对本次事件所属会话 sid。
+    if (event === 'Stop' || event === 'SessionEnd') {
+      const s = appState.getSession(sid);
+      if (s && s.startTs) {
+        const prices = loadPrices();
+        const tk = computeSessionTokens(s)
+          || { input: 0, output: 0, cacheCreation: 0, cacheRead: 0, total: 0 };
+        upsertSession(buildRecord({
+          sessionId: s.sessionId,
+          cwd: s.cwd,
+          project: s.cwd ? projectNameFromCwd(s.cwd) : '',
+          startTs: s.startTs, endTs: s.endTs, tokens: tk,
+        }, prices));
+      }
     }
     sendState();
   });
