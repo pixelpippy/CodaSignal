@@ -111,3 +111,24 @@ test('StateManager: missing session_id falls back to cwd/default key', () => {
   assert.equal(m.activeSessions().length, 1);
   assert.equal(m.aggregateState(), 'yellow');
 });
+test('StateManager: event without session_id/cwd attaches to latest active session', () => {
+  const m = new StateManager();
+  m.applyEvent('SessionStart', { session_id: 'A', cwd: 'D:/work/ProjZ' });
+  m.applyEvent('PreToolUse', {});   // 无 session_id / cwd —— 不应新建幽灵会话
+  m.applyEvent('Stop', {});         // 同上，必须落到 A 上
+  assert.equal(m.activeSessions().length, 1);
+  const a = m.getSession('A');
+  assert.ok(a);
+  assert.equal(a.state, 'green');   // A 走完 yellow -> green
+  assert.equal(m.aggregateState(), 'green');
+});
+test('StateManager: getSession retrieves session by sid', () => {
+  const m = new StateManager();
+  const sid = m.applyEvent('SessionStart', { session_id: 'A', cwd: 'D:/work/ProjX' });
+  assert.equal(sid, 'A');
+  const s = m.getSession('A');
+  assert.ok(s);
+  assert.equal(s.sessionId, 'A');
+  assert.equal(s.cwd, 'D:/work/ProjX');
+  assert.equal(m.getSession('nope'), undefined);
+});

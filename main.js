@@ -57,7 +57,7 @@ function makeIcon(state) {
   return nativeImage.createFromDataURL(`data:image/png;base64,${makeDotPng(rgb).toString('base64')}`);
 }
 
-const { StateManager, projectNameFromCwd } = require('./src/state.js');
+const { StateManager, PRIORITY, projectNameFromCwd } = require('./src/state.js');
 const { startServer } = require('./src/server.js');
 const { focusTerminal } = require('./src/focus.js');
 const {
@@ -186,9 +186,16 @@ ipcMain.on('hover-leave', () => hideHoverStats());
 ipcMain.handle('get-stats', () => {
   const prices = loadPrices();
   const stored = loadStats();
-  // current 为“活跃会话数组”，按灯色优先级降序（最紧急在前），供多会话统计面板逐条展示
-  const ORDER = { red: 3, yellow: 2, green: 1, idle: 0 };
+  // current 为“活跃会话数组”，按灯色优先级降序、同级按 lastUpdate 新→旧（最紧急在前）。
+  // 排序必须在 map 之前对 SessionState 做（映射后的对象没有 lastUpdate），且比较器要与
+  // StateManager.mostUrgent() 完全一致，否则 current[0] 会和灯面/点击聚焦的会话对不上。
   const current = appState.activeSessions()
+    .slice()
+    .sort((a, b) => {
+      const pa = PRIORITY[a.state] || 0, pb = PRIORITY[b.state] || 0;
+      if (pb !== pa) return pb - pa;
+      return (b.lastUpdate || 0) - (a.lastUpdate || 0);
+    })
     .map((s) => {
       const tokens = computeSessionTokens(s)
         || { input: 0, output: 0, cacheCreation: 0, cacheRead: 0, total: 0 };
@@ -203,8 +210,7 @@ ipcMain.handle('get-stats', () => {
         endTs: s.endTs,
         durationMs: currentDurationMs(s),
       };
-    })
-    .sort((a, b) => (ORDER[b.state] || 0) - (ORDER[a.state] || 0));
+    });
   return { current, totals: stored.totals, sessions: stored.sessions, prices };
 });
 

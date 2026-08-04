@@ -89,7 +89,17 @@ class StateManager {
     this.sessions = new Map(); // sessionId -> SessionState
   }
   _sid(data = {}) {
-    return data.session_id || data.sessionId || (data.cwd ? 'cwd:' + data.cwd : 'default');
+    if (data.session_id || data.sessionId) return data.session_id || data.sessionId;
+    if (data.cwd) return 'cwd:' + data.cwd;
+    // 兜底：事件既没带 session_id 也没带 cwd（例如 hook 配成了字面量 JSON）。
+    // 归到「最近更新的活跃会话」，避免凭空造出一个 'default' 幽灵会话，
+    // 让真会话永远收不到 Stop/SessionEnd（灯不变绿、不回空闲、统计不落盘）。
+    const active = this.activeSessions();
+    if (active.length) {
+      active.sort((a, b) => (b.lastUpdate || 0) - (a.lastUpdate || 0));
+      return active[0].sessionId;
+    }
+    return 'default';
   }
   getSession(sid) { return this.sessions.get(sid); }
   activeSessions() {

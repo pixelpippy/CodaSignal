@@ -35,7 +35,7 @@ node --test tests/stats.test.js
 - **主进程 `main.js`**：应用入口。负责创建并管理全部窗口、托盘、本地 HTTP 服务，并在收到 hook 事件后驱动状态与 UI。
 - **`src/`**：纯逻辑模块，全部被主进程 `require`，不依赖 Electron 渲染环境：
   - `config.js` —— 端口（`CODASIGNAL_PORT`，默认 `18765`）、`PROJECTS_DIR`（CodeBuddy 会话目录，默认 `~/.codebuddy/projects`）、`SIGNAL_DIR`（默认 `~/.codasignal`）。
-  - `state.js` —— `AppState` 类与 `EVENT_TO_STATE` 映射（事件 → 灯色），`projectNameFromCwd` 取项目名。
+  - `state.js` —— `SessionState`（单会话状态机）+ `StateManager`（持有 `Map<sessionId, SessionState>` 做多会话聚合）、`EVENT_TO_STATE` 映射（事件 → 灯色）、`PRIORITY`（`red>yellow>green>idle`）、`projectNameFromCwd` 取项目名。
   - `server.js` —— `startServer(port, onEvent)`：在 `127.0.0.1:PORT` 监听 `POST /event`，解析 JSON 后回调 `onEvent(event, data)`；端口被占用（EADDRINUSE）时返回 `null`。
   - `focus.js` —— `focusTerminal(cwd)`：通过 PowerShell 调用 `user32` 的 `AttachThreadInput`+`SetForegroundWindow` 把终端提到前台（绕过 Windows 前台锁）。候选终端进程名在 `TERMINAL_NAMES`（`wezterm`/`WindowsTerminal`/`conhost`/`mintty`）。
   - `stats.js` —— token 统计与费用估算核心（见下）。
@@ -49,8 +49,8 @@ node --test tests/stats.test.js
 
 1. CodeBuddy hook（Git Bash 里的 `curl`）向 `POST /event` 发送 `{"event": "...", ...}`。
 2. `src/server.js` 解析后回调主进程传入的 `onEvent`（`main.js` 内）。
-3. `AppState.applyEvent(event, data)` 更新 `state` / `cwd` / `sessionId` / 时间戳。事件映射见 `src/state.js`：`permission_prompt`→红、`PreToolUse`/`PostToolUse`→黄、`Stop`→绿、`SessionStart`/`SessionEnd`→空闲。
-4. `sendState()` 把 `appState.snapshot()` 通过 IPC `state-update` 推给悬浮窗，并同时把托盘图标换成对应颜色（`makeIcon` 内联生成 16×16 PNG，无外部资源）。
+3. `StateManager.applyEvent(event, data)` 按 `session_id`（缺失时退化为 `cwd:<cwd>`，再缺失则归到最近更新的活跃会话）找到对应 `SessionState` 并更新其 `state` / `cwd` / 时间戳，返回该 `sid`。单会话事件映射与原来一致：`permission_prompt`→红、`UserPromptSubmit`/`PreToolUse`/`PostToolUse`→黄、`Stop`→绿、`SessionStart`/`SessionEnd`→空闲。
+4. `sendState()` 把 `appState.snapshot()` 通过 IPC `state-update` 推给悬浮窗，并同时把托盘图标换成对应颜色（`makeIcon` 内联生成 16×16 PNG，无外部资源）。快照里的灯色是**多会话聚合**结果：按 `PRIORITY` 取最严重态（红 > 黄 > 绿 > 空闲，idle 不会把灯降级），`mostUrgent()`（优先级降序、同级取 `lastUpdate` 最新）决定灯面项目名、hover 显示的会话与点击聚焦的终端。只有一个 CodeBuddy 会话时，表现与改造前完全一致。
 5. **单实例保护**：`startServer` 若返回 `null`（端口已占用），主进程直接 `app.quit()`，避免多实例抢端口。
 
 ### 统计与持久化（`src/stats.js`）
